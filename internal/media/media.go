@@ -50,7 +50,11 @@ func MulawDecode(ulaw []byte) []int16 {
 
 const mulawBias = 0x84
 
-// encodeMulaw is the standard G.711 mu-law compressor.
+// encodeMulaw is the standard G.711 mu-law compressor, in the 16-bit-domain
+// form Asterisk's ulaw.c uses (bias 0x84, clip 32635). It is bit-exact with
+// that implementation across all 65536 inputs; the 14-bit Sun/ITU reference
+// differs on 381 segment-boundary samples because it truncates to 14 bits
+// first, and we keep the extra precision.
 func encodeMulaw(sample int16) byte {
 	sign := byte(0)
 	s := int(sample)
@@ -63,21 +67,25 @@ func encodeMulaw(sample int16) byte {
 		ss = 32635
 	}
 	ss += mulawBias
+	// Segment boundaries are powers of two from 0x100 up: the exponent is the
+	// index of the biased magnitude's leading bit above bit 7. Doubling any of
+	// these thresholds picks a segment too low, and the 4-bit mantissa below
+	// then drops the leading bit it was supposed to keep.
 	exponent := 0
 	switch {
-	case ss < 0x200:
+	case ss < 0x100:
 		exponent = 0
-	case ss < 0x400:
+	case ss < 0x200:
 		exponent = 1
-	case ss < 0x800:
+	case ss < 0x400:
 		exponent = 2
-	case ss < 0x1000:
+	case ss < 0x800:
 		exponent = 3
-	case ss < 0x2000:
+	case ss < 0x1000:
 		exponent = 4
-	case ss < 0x4000:
+	case ss < 0x2000:
 		exponent = 5
-	case ss < 0x8000:
+	case ss < 0x4000:
 		exponent = 6
 	default:
 		exponent = 7
