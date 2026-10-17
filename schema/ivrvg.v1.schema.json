@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/swiftkimani/ivr-voice-gateway/schema/ivrvg.v1.schema.json",
+  "title": "IVR Voice Gateway wire contract v1",
+  "description": "Text control/event messages exchanged over the /v1/media WebSocket alongside raw PCM16LE binary audio frames. Audio is never JSON: binary frames are 8 kHz mono 16-bit little-endian, 20 ms (160 samples, 320 bytes).",
+  "oneOf": [
+    { "$ref": "#/$defs/Start" },
+    { "$ref": "#/$defs/Started" },
+    { "$ref": "#/$defs/Transcript" },
+    { "$ref": "#/$defs/Reply" },
+    { "$ref": "#/$defs/Dtmf" },
+    { "$ref": "#/$defs/Action" },
+    { "$ref": "#/$defs/Stop" },
+    { "$ref": "#/$defs/Ended" },
+    { "$ref": "#/$defs/Error" }
+  ],
+  "$defs": {
+    "seq": { "type": "integer", "minimum": 0, "description": "Monotonic per-call sequence number." },
+    "at": { "type": "string", "format": "date-time", "description": "UTC timestamp, RFC 3339." },
+    "call_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+
+    "Start": {
+      "type": "object",
+      "description": "client -> server. First message after the socket opens.",
+      "required": ["type", "call_id"],
+      "properties": {
+        "type": { "const": "start" },
+        "call_id": { "$ref": "#/$defs/call_id" },
+        "hint": { "type": "string", "description": "Context from the IVR (caller id, menu choice, account, character preference)." }
+      },
+      "additionalProperties": false
+    },
+
+    "Started": {
+      "type": "object",
+      "description": "server -> client. The gateway accepted the call.",
+      "required": ["type", "call_id", "seq", "at"],
+      "properties": {
+        "type": { "const": "call_started" },
+        "call_id": { "$ref": "#/$defs/call_id" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" }
+      },
+      "additionalProperties": false
+    },
+
+    "Transcript": {
+      "type": "object",
+      "description": "server -> client. Caller speech recognised.",
+      "required": ["type", "seq", "at", "text", "final"],
+      "properties": {
+        "type": { "const": "transcript" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "text": { "type": "string" },
+        "final": { "type": "boolean", "description": "false while the utterance is still being refined." }
+      },
+      "additionalProperties": false
+    },
+
+    "Reply": {
+      "type": "object",
+      "description": "server -> client. A sentence the agent will speak; audio frames follow.",
+      "required": ["type", "seq", "at", "text"],
+      "properties": {
+        "type": { "const": "reply" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "Dtmf": {
+      "type": "object",
+      "description": "client -> server. A keypad digit pressed during the call. Also arrives as an event.",
+      "required": ["type", "digit"],
+      "properties": {
+        "type": { "const": "dtmf" },
+        "digit": { "type": "string", "pattern": "^[0-9*#ABCD]$" },
+        "sensitive": { "type": "boolean", "default": false, "description": "When true the digit group is redacted from the transcript and never sent to the model." }
+      },
+      "additionalProperties": false
+    },
+
+    "Action": {
+      "type": "object",
+      "description": "server -> client. The agent acts on the call. The adapter executes it (AMI/ARI/dialplan).",
+      "required": ["type", "seq", "at", "kind"],
+      "properties": {
+        "type": { "const": "action" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "kind": { "enum": ["send_dtmf", "route", "transfer", "play_prompt", "park", "hangup", "read_digits"] },
+        "args": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+
+    "Stop": {
+      "type": "object",
+      "description": "client -> server. Caller hung up or the IVR is ending the leg.",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "stop" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "Ended": {
+      "type": "object",
+      "description": "server -> client. The gateway closed the call and flushed the event log.",
+      "required": ["type", "seq", "at", "reason"],
+      "properties": {
+        "type": { "const": "call_ended" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "Error": {
+      "type": "object",
+      "description": "server -> client. A protocol or provider error.",
+      "required": ["type", "seq", "at", "code", "message"],
+      "properties": {
+        "type": { "const": "error" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{"seq":1,"at":"2026-10-17T14:53:04.720704Z","call_id":"sample-0001","type":"call_started","data":{"hint":"+15550001111"}}
+{"seq":2,"at":"2026-10-17T14:53:04.721011Z","call_id":"sample-0001","type":"reply","data":{"text":"Hello, you have reached the gateway. Press 1 for sales, 2 to book, or 0 for an operator."}}
+{"seq":3,"at":"2026-10-17T14:53:04.72103Z","call_id":"sample-0001","type":"dtmf","data":{"digit":"1"}}
+{"seq":4,"at":"2026-10-17T14:53:04.721041Z","call_id":"sample-0001","type":"action","data":{"args":{"dest":"200"},"kind":"transfer"}}
+{"seq":5,"at":"2026-10-17T14:53:04.721082Z","call_id":"sample-0001","type":"reply","data":{"text":"Connecting you to sales now."}}
+{"seq":6,"at":"2026-10-17T14:53:04.72115Z","call_id":"sample-0001","type":"transcript","data":{"final":true,"text":"I have a question about my last invoice"}}
+{"seq":7,"at":"2026-10-17T14:53:04.721184Z","call_id":"sample-0001","type":"reply","data":{"text":"Hello, you have reached the gateway. Press 1 for sales, 2 to book, or 0 for an operator."}}
+{"seq":8,"at":"2026-10-17T14:53:04.721223Z","call_id":"sample-0001","type":"call_ended","data":{"reason":"hangup"}}

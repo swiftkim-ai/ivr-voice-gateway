@@ -1,0 +1,29 @@
+{
+  "name": "@swiftkimani/ivr-voice-gateway-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for IVR Voice Gateway v1",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.3"
+  }
+}
