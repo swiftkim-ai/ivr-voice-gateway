@@ -1,6 +1,5 @@
-import type { ActionKind } from "./types.js";
-
 export type {
+  ActionKind,
   WireMessage,
   CallStarted,
   Transcript,
@@ -14,4 +13,3 @@ export type {
 
 export type { EventCallback } from "./client.js";
 export { CallClient } from "./client.js";
-export { ActionKind } from "./types.js";
