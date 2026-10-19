@@ -5,7 +5,8 @@
 2. This file — project rules
 3. docs/CONTEXT.md — where the work currently stands
 4. docs/CONTRACT.md and docs/adr/ — the interface and why it is shaped this way
-5. README.md — the phased roadmap
+5. docs/ASTERISK.md — attaching to a real switch (Phase 1 onward)
+6. README.md — the phased roadmap
 
 ## Project in one paragraph
 A self-hosted sidecar that lets any IVR hand a live call to a voice AI and take it back. The value is
@@ -19,12 +20,17 @@ Phase 2/4). Contract in JSON Schema. No database in Phase 0 — the event log is
 ## Commands
 | Task | Command |
 |---|---|
-| Run gateway | `go run ./cmd/ivrvg serve` |
-| Replay a call | `go run ./cmd/ivrvg replay <file.jsonl>` |
-| Go tests | `go test ./...` |
-| Go vet / format | `go vet ./...` / `gofmt -w .` |
-| SDK type-check | `cd sdk/ts && npm run typecheck` |
-| SDK tests | `cd sdk/ts && npm test` |
+| Everything CI runs | `make check` |
+| Run gateway (no telephony) | `make run` |
+| Run attached to Asterisk | `make run-asterisk` (needs `IVRVG_AMI_SECRET`) |
+| Replay a call | `make replay CALL=<file.jsonl>` |
+| Go tests | `make test-go` |
+| Go vet / format | `make vet` / `make fmt` (`make fmt-check` to verify) |
+| SDK type-check | `make typecheck` |
+| SDK tests | `make test-ts` |
+
+Environment variables are documented in `.env.example`. Secrets are read from the environment, never
+from flags, which any user who can list processes can read.
 
 ## Project-specific rules
 - The contract is the seam: change `schema/ivrvg.v1.schema.json` and `docs/CONTRACT.md` together, and
