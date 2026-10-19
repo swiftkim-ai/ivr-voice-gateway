@@ -8,8 +8,9 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 0 (spine)** — see [Roadmap](#roadmap). The media plane, event log, and deterministic
-> replay are in place and tested; the control plane and telephony adapters land in Phase 1.
+> Status: **Phase 1 (control plane)** — see [Roadmap](#roadmap). The gateway attaches to a real
+> Asterisk: audio and DTMF over AudioSocket, actions over AMI, every call replayable. Point a
+> softphone at it and no carrier is needed — see [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
 
@@ -50,7 +51,7 @@ Two design commitments follow from it:
 
 Each phase is independently demonstrable and ships a working slice — no stubs left behind.
 
-### Phase 0 — Spine ✅ (this release)
+### Phase 0 — Spine ✅
 Prove the foundation without needing a phone system.
 - The integration contract, versioned (`schema/`, `docs/CONTRACT.md`).
 - Append-only JSONL event log per call.
@@ -60,11 +61,14 @@ Prove the foundation without needing a phone system.
 - **Proof:** a call connects, turns are exchanged, the log is written, and a replay reproduces the
   exact turn sequence.
 
-### Phase 1 — Control plane
+### Phase 1 — Control plane ✅ (this release)
 The thesis of the project, made real.
-- DTMF in (as an event) and actions out (`send_dtmf`, `route`, `transfer`, `play_prompt`, `park`, `hangup`).
-- A real Asterisk dialplan: AudioSocket for media plus AMI/ARI for actions.
-- Redaction rule for digit groups marked sensitive.
+- DTMF in over AudioSocket (which carries digits natively) and actions out over AMI:
+  `send_dtmf`, `route`, `transfer`, `park`, `hangup`. `play_prompt` waits for ARI (ADR-0007).
+- A real Asterisk dialplan — [`deploy/asterisk/`](deploy/asterisk/), setup in
+  [`docs/ASTERISK.md`](docs/ASTERISK.md).
+- `read_digits` collects a group; a sensitive one is reduced to a count and a keyed token before
+  anything is written, so it reaches neither the log nor the model — and still replays.
 - **Proof:** a caller enters an account number by keypad mid-sentence; the agent reads it back,
   routes the call, and transfers it.
 
@@ -124,13 +128,17 @@ Deliberately no protobuf/build-codegen in Phase 0 — the JSON contract is enoug
 
 ---
 
-## Quickstart (Phase 0)
+## Quickstart
 
-Prerequisites: Go 1.23+, Node 22+ (for the SDK).
+Prerequisites: Go 1.23+, Node 22+ (for the SDK). Asterisk is needed only for a real phone call —
+see [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ```bash
 # Build and run the gateway (WebSocket media endpoint on :8099)
 go run ./cmd/ivrvg serve
+
+# Attach to Asterisk: media on 8090, control over the manager interface
+IVRVG_AMI_SECRET=... go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 127.0.0.1:5038
 
 # Replay a recorded call deterministically
 go run ./cmd/ivrvg replay testdata/calls/example.jsonl
@@ -150,10 +158,11 @@ internal/call/     call engine + turn loop
 internal/eventlog/ append-only JSONL event log
 internal/media/    PCM16, 20 ms frames, G.711 mulaw
 internal/brain/    brain interface + scripted brain + tool registry
-internal/gateway/  wsmedia adapter + loopback (for tests)
-internal/control/  control actions
+internal/gateway/  wsmedia + audiosocket adapters
+internal/control/  control actions, the Controller seam, AMI client
 internal/replay/   deterministic replay
 schema/            the v1 contract (JSON Schema)
+deploy/asterisk/   dialplan and manager config that work as shipped
 docs/              CONTRACT.md · ARCHITECTURE · adr/ · CONTEXT.md
 sdk/ts/            TypeScript SDK (types + CallClient)
 testdata/calls/    recorded calls and golden fixtures
@@ -162,6 +171,7 @@ testdata/calls/    recorded calls and golden fixtures
 ## Documentation
 
 - [`docs/CONTRACT.md`](docs/CONTRACT.md) — the integration contract (v1).
+- [`docs/ASTERISK.md`](docs/ASTERISK.md) — attaching to a real Asterisk, end to end.
 - [`schema/ivrvg.v1.schema.json`](schema/ivrvg.v1.schema.json) — message schema (source of truth).
 - [`docs/adr/`](docs/adr/) — architecture decisions.
 - [`docs/CONTEXT.md`](docs/CONTEXT.md) — where the work currently stands.
