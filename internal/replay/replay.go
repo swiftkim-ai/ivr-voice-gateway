@@ -10,6 +10,7 @@ package replay
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/brain"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
@@ -37,7 +38,10 @@ type Report struct {
 func (r Report) OK() bool { return len(r.Divergences) == 0 }
 
 type step struct {
-	caller     string
+	caller string
+	// group is set when the caller input was a collected digit group rather
+	// than speech or a single keypress.
+	group      *call.DigitGroup
 	expActions []control.Action
 	expSay     []string
 }
@@ -66,20 +70,28 @@ func Run(ctx context.Context, events []eventlog.Event, b brain.Brain, sp brain.S
 
 	for i := 1; i < len(steps); i++ {
 		sink.Reset()
-		text := steps[i].caller
-		if len(text) > 5 && text[:5] == "dtmf:" {
-			if err := c.Digit(ctx, text[5:], false); err != nil {
-				return rep, err
-			}
-		} else {
-			if err := c.Input(ctx, text); err != nil {
-				return rep, err
-			}
+		if err := feed(ctx, c, steps[i]); err != nil {
+			return rep, err
 		}
 		rep.Turns++
 		compare(&rep, i, steps[i], sink)
 	}
 	return rep, nil
+}
+
+// feed gives the engine one recorded caller input, by the same route it
+// arrived on live.
+func feed(ctx context.Context, c *call.Call, st step) error {
+	switch {
+	case st.group != nil:
+		// A group is replayed whole: the recording holds it as one event, and
+		// a redacted group has no digits left to press.
+		return c.Digits(ctx, *st.group)
+	case strings.HasPrefix(st.caller, "dtmf:"):
+		return c.Digit(ctx, strings.TrimPrefix(st.caller, "dtmf:"), false)
+	default:
+		return c.Input(ctx, st.caller)
+	}
 }
 
 // header pulls the call id and hint from the opening event.
@@ -110,6 +122,20 @@ func parse(events []eventlog.Event) []step {
 			cur = len(steps) - 1
 		case "dtmf":
 			steps = append(steps, step{caller: "dtmf:" + str(ev.Data["digit"])})
+			cur = len(steps) - 1
+		case "digits":
+			g := call.DigitGroup{
+				Label:    str(ev.Data["label"]),
+				Digits:   str(ev.Data["digits"]),
+				Count:    toInt(ev.Data["count"]),
+				Redacted: ev.Data["redacted"] == true,
+				Hash:     str(ev.Data["hash"]),
+			}
+			caller := "digits:" + g.Digits
+			if g.Redacted {
+				caller = fmt.Sprintf("digits:<redacted:%d>", g.Count)
+			}
+			steps = append(steps, step{caller: caller, group: &g})
 			cur = len(steps) - 1
 		case "reply":
 			ensure()
@@ -180,6 +206,17 @@ func str(v any) string {
 		return ""
 	}
 	return fmt.Sprint(v)
+}
+
+// toInt reads a count back out of JSON, where numbers decode to float64.
+func toInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+	return 0
 }
 
 func asMap(v any) map[string]any {
