@@ -66,7 +66,8 @@ The thesis of the project, made real.
 - DTMF in over AudioSocket (which carries digits natively) and actions out over AMI:
   `send_dtmf`, `route`, `transfer`, `park`, `hangup`. `play_prompt` waits for ARI (ADR-0007).
 - A real Asterisk dialplan — [`deploy/asterisk/`](deploy/asterisk/), setup in
-  [`docs/ASTERISK.md`](docs/ASTERISK.md).
+  [`docs/ASTERISK.md`](docs/ASTERISK.md). Verified against Asterisk 22.5 with
+  `make integration-test`, which builds a switch in Docker and places a real call.
 - `read_digits` collects a group; a sensitive one is reduced to a count and a keyed token before
   anything is written, so it reaches neither the log nor the model — and still replays.
 - **Proof:** a caller enters an account number by keypad mid-sentence; the agent reads it back,

@@ -16,7 +16,8 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 | TypeScript SDK | ✅ done | types + `CallClient` |
 | Phase 0 verified end-to-end | ✅ done | live call → log → replay, CI green |
 | Control plane (actions) | ✅ done | `Controller` seam; AMI adapter carries them out |
-| Asterisk adapter (AudioSocket + AMI) | ✅ done | `deploy/asterisk/`, `docs/ASTERISK.md` |
+| Asterisk adapter (AudioSocket + AMI) | ✅ done | verified against real Asterisk 22.5.2 |
+| Real-switch integration test | ✅ done | `make integration-test` (Docker) |
 | DTMF in | ✅ done | AudioSocket frame `0x03`; no AMI correlation needed |
 | Sensitive digit redaction | ✅ done | count + keyed token; replays without the digits |
 | Test-driver (`dial`/`map`) | ⬜ not started | Phase 2 |
@@ -24,6 +25,21 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-19 **Tested against a real Asterisk at last** (22.5.2 in a container) and the full Phase 1
+  proof passes: greeting → DTMF `2` → account number `48217#` keyed mid-call → the agent reads it
+  back → AMI `Redirect` moves the real channel into `200@default`, which the dialplan confirms →
+  the recorded call replays with 0 divergences. Reproducible with `make integration-test`.
+- 2026-10-19 The real switch found three bugs the stand-in could not:
+  (1) **The media stream must never stop.** Asterisk hangs up after 2 s without traffic
+  (`MAX_WAIT_TIMEOUT_MSEC`, hard-coded). The adapter only wrote while the agent spoke, so every
+  call died two seconds after the greeting. It now streams continuously, sending silence when idle.
+  (2) **The shipped dialplan was broken.** It used `${UUID()}`, which does not exist before
+  Asterisk 22 — on 20.x it expands to nothing and the call fails. Replaced with an MD5 of the
+  channel uniqueid, which works on every version.
+  (3) **DTMF over AudioSocket needs Asterisk 20.15 / 22.4 or newer.** Ubuntu 24.04 LTS ships 20.6,
+  where the audio path works and keypresses silently go nowhere. Documented with a version table.
+- 2026-10-19 Verified the documented minimum manager permissions (`read = call,user`,
+  `write = call`) are genuinely sufficient, by narrowing the test switch to exactly those.
 - 2026-10-19 CI cleaned up. Every job had been carrying Node 20 deprecation warnings because the
   actions were two to three majors behind (checkout/setup-node v4, setup-go v5, all now v7), which
   is what the annotations on every run reported. The runner is pinned to ubuntu-24.04 rather than
@@ -70,7 +86,9 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
   let tsc accept the `.ts` specifier and rewrite it to `.js` on emit.
 
 ## Next (ordered)
-1. Test against a real Asterisk, not the scripted stand-in: module load, dialplan reload, softphone.
+1. Decide whether to support DTMF on Asterisk older than 20.15 by reading digits from AMI
+   `DTMFEnd` events instead. It would add a second inbound path and a concurrency change (the
+   engine is currently driven only by the AudioSocket goroutine), so it needs a decision first.
 2. Phase 2: `ivrvg dial` and `ivrvg map` — the same tools in reverse.
 3. Consider generating the Go and TS types from the schema (ADR-0005), now that the fixture proves
    where they drift.
@@ -101,14 +119,17 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
   field is missing on their side.
 - `internal/media` mu-law still has no callers: AudioSocket carries SLIN, which is already the
   engine's format. It becomes load-bearing for a Twilio Media Streams adapter or raw RTP.
-- **No real Asterisk has been dialled.** Phase 1 is proved against a scripted stand-in that speaks
-  the AMI and AudioSocket protocols; module loading, dialplan reloads and NAT are untested.
+- Real Asterisk is now tested, but only in a container on one host: NAT between separate machines,
+  SIP trunk interop and a registered softphone are all still untested.
+- DTMF does not work on Asterisk older than 20.15 / 22.4, where AudioSocket cannot carry it. The
+  audio path works, so the failure is silent. See the version table in `docs/ASTERISK.md`.
 - The AMI connection does not reconnect. If it drops, actions fail until the gateway restarts.
 - A digit group has no timeout: it closes on its count or terminator, nothing else. A caller who
   stops halfway leaves it open. Adding one means a timer in the engine, which is currently
   event-driven and single-threaded per call.
-- Audio is written paced at 20 ms from the same goroutine that reads, so a digit pressed while the
-  agent is speaking waits up to a sentence to be processed. Barge-in needs a separate read goroutine.
+- Audio is written by its own goroutine now, but the engine still processes one event at a time, so a
+  digit pressed mid-sentence waits for the sentence to finish. Barge-in needs the engine to be
+  interruptible, not just the writer to be separate.
 
 ## How to run right now
 - Prereqs: Go 1.23+, Node 22+ (for the SDK). Asterisk 16+ only for a real call.
