@@ -104,18 +104,24 @@ to a real Asterisk.
 
 ## 5. Attaching to an existing IVR (the one-line promise)
 
-Minimal Asterisk dialplan — media over AudioSocket, context passed up front:
+Minimal Asterisk dialplan — media over AudioSocket, control over AMI:
 
 ```
 exten => 7000,1,Answer()
- same => n,Set(CALL_ID=${UNIQUEID})
- same => n,Set(HINT=${CALLERID(num)})
- same => n,CURL(http://gateway:8099/v1/attach?call_id=${CALL_ID}&hint=${HINT})
- same => n,AudioSocket(${CALL_ID},gateway:8090)
+ same => n,Set(IVRVG_UUID=${UUID()})
+ same => n,UserEvent(IvrvgStart,UUID: ${IVRVG_UUID},Hint: ${CALLERID(num)})
+ same => n,AudioSocket(${IVRVG_UUID},gateway:8090)
  same => n,Hangup()
 ```
 
-(Exact adapter syntax lands in Phase 1; the contract above is fixed now.)
+`AudioSocket` carries the audio and the caller's keypresses. The `UserEvent`
+tells the gateway which channel the call is on, since AudioSocket does not, and
+actions have to be addressed somewhere; `Hint` passes the IVR's context to the
+model. Asterisk adds the channel name to the event itself.
+
+The full setup, including the manager account the control channel needs, is in
+[`ASTERISK.md`](ASTERISK.md). Working configuration files are in
+[`../deploy/asterisk/`](../deploy/asterisk/).
 
 ## 6. SDKs
 
