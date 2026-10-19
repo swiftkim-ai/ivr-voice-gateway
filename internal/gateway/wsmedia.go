@@ -26,6 +26,8 @@ type Options struct {
 	// Brain and Speaker are the shared decision and speech components.
 	Brain   brain.Brain
 	Speaker brain.Speaker
+	// Redactor keys the token standing in for a sensitive digit group.
+	Redactor *call.Redactor
 }
 
 // Handler returns the HTTP routes: the media WebSocket and a health check.
@@ -91,7 +93,7 @@ func serveCall(opts Options, w http.ResponseWriter, r *http.Request) {
 	c := &call.Call{
 		ID: callID, Hint: hint,
 		Brain: opts.Brain, Speaker: opts.Speaker,
-		Sink: wsSink{conn: conn}, Log: logw,
+		Sink: wsSink{conn: conn}, Log: logw, Redactor: opts.Redactor,
 	}
 
 	if err := c.Start(); err != nil {
