@@ -8,6 +8,7 @@ export type ActionKind =
   | "read_digits";
 
 export type WireMessage =
+  | Start
   | CallStarted
   | Transcript
   | Reply
@@ -22,6 +23,17 @@ export interface BaseMessage {
   type: string;
   seq: number;
   at: string;
+}
+
+/** client -> server. The first message after the socket opens. */
+export interface Start {
+  type: "start";
+  call_id: string;
+  /** Context from the IVR: caller id, menu choice, account. */
+  hint?: string;
+  /** A client may number its own messages; the server does not rely on it. */
+  seq?: number;
+  at?: string;
 }
 
 export interface CallStarted extends BaseMessage {
@@ -40,10 +52,16 @@ export interface Reply extends BaseMessage {
   text: string;
 }
 
-export interface Dtmf extends BaseMessage {
+/**
+ * A keypad digit. Travels both ways: the client sends one without seq/at, and
+ * the gateway echoes it back as an event carrying both.
+ */
+export interface Dtmf {
   type: "dtmf";
   digit: string;
   sensitive?: boolean;
+  seq?: number;
+  at?: string;
 }
 
 export interface Digits extends BaseMessage {
@@ -69,6 +87,9 @@ export interface Action extends BaseMessage {
 export interface Stop {
   type: "stop";
   reason?: string;
+  /** A client may number its own messages; the server does not rely on it. */
+  seq?: number;
+  at?: string;
 }
 
 export interface Ended extends BaseMessage {

@@ -22,10 +22,12 @@
 
     "Start": {
       "type": "object",
-      "description": "client -> server. First message after the socket opens.",
+      "description": "client -> server. First message after the socket opens. A client may stamp its own seq/at, as the reference SDK does; the server does not rely on them.",
       "required": ["type", "call_id"],
       "properties": {
         "type": { "const": "start" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
         "call_id": { "$ref": "#/$defs/call_id" },
         "hint": { "type": "string", "description": "Context from the IVR (caller id, menu choice, account, character preference)." }
       },
@@ -74,10 +76,12 @@
 
     "Dtmf": {
       "type": "object",
-      "description": "client -> server. A keypad digit pressed during the call. Also arrives as an event.",
+      "description": "A keypad digit pressed during the call. Travels both ways: the client sends it without seq/at, and the gateway echoes it back as an event carrying both.",
       "required": ["type", "digit"],
       "properties": {
         "type": { "const": "dtmf" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
         "digit": { "type": "string", "pattern": "^[0-9*#ABCD]$" },
         "sensitive": { "type": "boolean", "default": false, "description": "When true the digit group is redacted from the transcript and never sent to the model." }
       },
@@ -117,10 +121,12 @@
 
     "Stop": {
       "type": "object",
-      "description": "client -> server. Caller hung up or the IVR is ending the leg.",
+      "description": "client -> server. Caller hung up or the IVR is ending the leg. A client may stamp its own seq/at, as the reference SDK does.",
       "required": ["type"],
       "properties": {
         "type": { "const": "stop" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
         "reason": { "type": "string" }
       },
       "additionalProperties": false

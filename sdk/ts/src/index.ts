@@ -1,5 +1,6 @@
 export type {
   ActionKind,
+  Start,
   WireMessage,
   CallStarted,
   Transcript,
