@@ -33,9 +33,14 @@ type Call struct {
 	// Log is optional; when set, every decision is appended to it.
 	Log *eventlog.Writer
 
+	// Redactor keys the token that stands in for a sensitive digit group.
+	// Required before read_digits may collect one; see digits.go.
+	Redactor *Redactor
+
 	seq     int
 	pending string
 	history []brain.Turn
+	collect *digitGroup
 }
 
 // Start opens the call: writes the opening event and tells the client.
@@ -57,18 +62,28 @@ func (c *Call) Input(ctx context.Context, text string) error {
 	return c.Respond(ctx)
 }
 
-// Digit feeds a keypad digit pressed by the caller. When sensitive is true the
-// digit is redacted in the log and never reaches the brain (ADR: payment/PIN
-// isolation), which is why the engine, not the adapter, owns this rule.
+// Digit feeds a keypad digit pressed by the caller.
+//
+// While a read_digits group is open the digit belongs to that group and is not
+// reported on its own; the group is reported as one event when it closes. A
+// digit marked sensitive outside a group is recorded as redacted and withheld
+// from the brain. The engine owns this rule, not the adapter, so every
+// transport inherits it.
 func (c *Call) Digit(ctx context.Context, digit string, sensitive bool) error {
+	if c.collect != nil {
+		if c.collectDigit(digit) {
+			return c.finishDigits(ctx)
+		}
+		return nil
+	}
+
 	data := map[string]any{"digit": digit}
-	sensitiveDigit := digit
 	if sensitive {
 		data["digit"] = "<redacted>"
 		data["sensitive"] = true
 	}
 	c.append("dtmf", data)
-	if err := c.emit(wire.Message{Type: "dtmf", Digit: sensitiveDigit, Sensitive: sensitive}); err != nil {
+	if err := c.emit(wire.Message{Type: "dtmf", Digit: digit, Sensitive: sensitive}); err != nil {
 		return err
 	}
 	if sensitive {
@@ -77,6 +92,9 @@ func (c *Call) Digit(ctx context.Context, digit string, sensitive bool) error {
 	c.pending = "dtmf:" + digit
 	return c.Respond(ctx)
 }
+
+// Collecting reports whether a read_digits group is open.
+func (c *Call) Collecting() bool { return c.collect != nil }
 
 // Respond asks the brain for the next turn and carries it out.
 func (c *Call) Respond(ctx context.Context) error {
@@ -107,9 +125,14 @@ func (c *Call) Respond(ctx context.Context) error {
 	return nil
 }
 
-// act records and emits a control action.
+// act records and emits a control action. read_digits also arms the engine's
+// digit collection: the switch has nothing to do for it (ADR-0007), the digits
+// arrive on the media adapter.
 func (c *Call) act(a control.Action) error {
 	c.append("action", map[string]any{"kind": a.Kind, "args": a.Args})
+	if a.Kind == control.ReadDigits {
+		c.arm(a.Args)
+	}
 	return c.emit(wire.Message{Type: "action", Kind: a.Kind, Args: a.Args})
 }
 
