@@ -52,6 +52,24 @@ func readType(t *testing.T, conn *websocket.Conn, want string) wire.Message {
 	}
 }
 
+// dialTestGateway starts a gateway and opens one media socket to it.
+func dialTestGateway(t *testing.T, opts gateway.Options) (*websocket.Conn, string) {
+	t.Helper()
+	if opts.LogDir == "" {
+		opts.LogDir = t.TempDir()
+	}
+	srv := httptest.NewServer(gateway.Handler(opts))
+	t.Cleanup(srv.Close)
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/media"
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn, opts.LogDir
+}
+
 func TestMediaCallEndToEnd(t *testing.T) {
 	logdir := t.TempDir()
 	srv := httptest.NewServer(gateway.Handler(gateway.Options{
@@ -109,5 +127,44 @@ func TestMediaCallEndToEnd(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != "call_ended" {
 		t.Fatalf("last event = %q, want call_ended", last.Type)
+	}
+}
+
+func TestWSRejectsAMessageTheContractForbids(t *testing.T) {
+	conn, _ := dialTestGateway(t, gateway.Options{Brain: testBrain(), Speaker: brain.Silence{FramesPerSentence: 1}})
+
+	if err := conn.WriteJSON(map[string]any{"type": "start", "call_id": "ws-invalid-1"}); err != nil {
+		t.Fatal(err)
+	}
+	readType(t, conn, "call_started")
+
+	// A digit outside the keypad: the schema's pattern forbids it.
+	if err := conn.WriteJSON(map[string]any{"type": "dtmf", "digit": "Z"}); err != nil {
+		t.Fatal(err)
+	}
+	msg := readType(t, conn, "error")
+	if msg.Code != "invalid_message" {
+		t.Fatalf("error code = %q, want invalid_message", msg.Code)
+	}
+
+	// The call survives it: a valid digit still works.
+	if err := conn.WriteJSON(map[string]any{"type": "dtmf", "digit": "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readType(t, conn, "reply"); got.Text == "" {
+		t.Fatal("the call did not continue after a rejected message")
+	}
+}
+
+func TestWSRejectsAStartTheContractForbids(t *testing.T) {
+	conn, _ := dialTestGateway(t, gateway.Options{Brain: testBrain(), Speaker: brain.Silence{FramesPerSentence: 1}})
+
+	// call_id is required by the contract.
+	if err := conn.WriteJSON(map[string]any{"type": "start", "hint": "no id"}); err != nil {
+		t.Fatal(err)
+	}
+	msg := readType(t, conn, "error")
+	if msg.Code != "bad_start" {
+		t.Fatalf("error code = %q, want bad_start", msg.Code)
 	}
 }

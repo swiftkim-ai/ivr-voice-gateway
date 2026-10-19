@@ -64,6 +64,10 @@ func serveCall(opts Options, w http.ResponseWriter, r *http.Request) {
 		_ = conn.WriteJSON(wire.Message{Type: "error", Code: "expected_start", ErrMessage: "first message must be start"})
 		return
 	}
+	if err := wire.Validate(data); err != nil {
+		_ = conn.WriteJSON(wire.Message{Type: "error", Code: "bad_start", ErrMessage: err.Error()})
+		return
+	}
 	var start wire.Message
 	if err := json.Unmarshal(data, &start); err != nil || start.Type != "start" {
 		_ = conn.WriteJSON(wire.Message{Type: "error", Code: "bad_start", ErrMessage: "malformed start"})
@@ -114,6 +118,16 @@ func serveCall(opts Options, w http.ResponseWriter, r *http.Request) {
 			// Caller audio. Phase 0 has no STT, so it is accepted and ignored;
 			// Phase 4 runs it through the transcriber.
 		case websocket.TextMessage:
+			// The contract is checked here, at the edge, so a malformed
+			// message is reported to the client rather than acted on or
+			// silently dropped. A bad message is not a reason to drop a live
+			// call, so the loop continues.
+			if err := wire.Validate(data); err != nil {
+				_ = conn.WriteJSON(wire.Message{
+					Type: "error", Code: "invalid_message", ErrMessage: err.Error(),
+				})
+				continue
+			}
 			var m wire.Message
 			if err := json.Unmarshal(data, &m); err != nil {
 				continue
