@@ -6,14 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+# The workflow only reads the repository; nothing here needs write access.
+permissions:
+  contents: read
+
+# A newer push makes an in-flight run for the same ref pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: that label migrates to Ubuntu 26 from
+    # 2026-10-19, and a build should not change underneath us unannounced.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          # go.mod is the single source of truth for the Go version.
+          go-version-file: go.mod
       # Formatting was a convention nothing checked, so a badly formatted
       # commit used to pass. Print the offenders rather than just failing.
       - name: gofmt
@@ -29,25 +41,26 @@ jobs:
       - run: go test -race ./...
 
   ts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: sdk/ts
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          # .nvmrc is the single source of truth for the Node version.
+          node-version-file: .nvmrc
       # npm ci installs exactly what the lock file pins; npm install may
       # silently resolve something newer.
       - run: npm ci --no-audit --no-fund
-        working-directory: sdk/ts
       - run: npx tsc --noEmit
-        working-directory: sdk/ts
       - run: node --test test/*.test.ts
-        working-directory: sdk/ts
 
   contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The schema is the contract's source of truth, so a malformed one is a
       # build failure, not something to discover at integration time.
       - name: schema parses
