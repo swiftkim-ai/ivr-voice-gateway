@@ -39,6 +39,10 @@ type Brain interface {
 
 // Rule maps an input to a canned reply. Match is a case-insensitive substring of
 // the caller text; "*" matches anything (used last). Rules are checked in order.
+//
+// A Say line may contain {caller}, which is replaced with what the caller last
+// said or entered. It is what lets a scripted brain read an account number back
+// without being a language model.
 type Rule struct {
 	Match   string
 	Say     []string
@@ -56,10 +60,27 @@ func (s *Scripted) Respond(_ context.Context, in Input) (Reply, error) {
 	text := strings.ToLower(in.Caller)
 	for _, r := range s.Rules {
 		if r.Match == "*" || (r.Match != "" && strings.Contains(text, strings.ToLower(r.Match))) {
-			return Reply{Sentences: r.Say, Actions: r.Actions}, nil
+			return Reply{Sentences: fill(r.Say, in.Caller), Actions: r.Actions}, nil
 		}
 	}
 	return Reply{Sentences: []string{"Sorry, I did not catch that."}}, nil
+}
+
+// fill substitutes {caller} with what the caller last entered, without the
+// prefix the engine uses to say how it arrived.
+func fill(say []string, caller string) []string {
+	if len(say) == 0 {
+		return nil
+	}
+	value := caller
+	for _, prefix := range []string{"digits:", "dtmf:"} {
+		value = strings.TrimPrefix(value, prefix)
+	}
+	out := make([]string, len(say))
+	for i, line := range say {
+		out[i] = strings.ReplaceAll(line, "{caller}", value)
+	}
+	return out
 }
 
 // Speaker turns text into PCM frames for the caller to hear. The real TTS
