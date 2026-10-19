@@ -1,5 +1,5 @@
 .PHONY: all build run run-asterisk replay sample test test-go test-ts typecheck \
-        check fmt fmt-check vet schema-check
+        check fmt fmt-check vet schema-check integration-test
 
 # What CI runs. Use this before pushing.
 check: fmt-check vet build test-go typecheck test-ts schema-check
@@ -49,6 +49,10 @@ fmt-check:
 	if [ -n "$$unformatted" ]; then \
 		echo "These files need gofmt:"; echo "$$unformatted"; exit 1; \
 	fi
+
+# A real Asterisk in a container, a real call, real DTMF. Needs Docker.
+integration-test:
+	./deploy/asterisk/docker/run-integration-test.sh
 
 schema-check:
 	python3 -c "import json; json.load(open('schema/ivrvg.v1.schema.json'))"
