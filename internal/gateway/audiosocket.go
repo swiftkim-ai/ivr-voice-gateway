@@ -16,6 +16,7 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/media"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/wire"
 )
 
@@ -60,8 +61,9 @@ type AudioSocketOptions struct {
 	// Redactor keys the token standing in for a sensitive digit group.
 	Redactor *call.Redactor
 
-	// FramePace is the gap between outbound audio frames. It defaults to the
-	// frame duration itself; tests set it to zero to run flat out.
+	// FramePace is the gap between outbound audio frames, and so the rate the
+	// stream runs at. It defaults to the frame duration, which is real time;
+	// tests shorten it to finish quickly.
 	FramePace time.Duration
 	// ChannelWait bounds how long to wait for the dialplan's UserEvent before
 	// running the call without a channel. Defaults to 2s.
@@ -69,11 +71,8 @@ type AudioSocketOptions struct {
 }
 
 func (o AudioSocketOptions) framePace() time.Duration {
-	if o.FramePace < 0 {
-		return 0
-	}
-	if o.FramePace == 0 {
-		return 20 * time.Millisecond
+	if o.FramePace <= 0 {
+		return media.FrameMS * time.Millisecond
 	}
 	return o.FramePace
 }
@@ -134,11 +133,18 @@ func serveAudioSocketCall(ctx context.Context, conn net.Conn, opts AudioSocketOp
 		defer logw.Close()
 	}
 
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+
 	sink := &audioSocketSink{
 		ctx: ctx, conn: conn, log: logw,
 		ctl: opts.Control, channel: info.Channel,
-		pace: opts.framePace(),
+		out: make(chan []byte, outboundFrames),
 	}
+	// The stream has to start before anything is said: Asterisk is already
+	// counting from the moment it connects.
+	go streamAudio(ctx, conn, sink.out, opts.framePace())
+
 	c := &call.Call{
 		ID: uuid, Hint: info.Hint,
 		Brain: opts.Brain, Speaker: opts.Speaker,
@@ -236,7 +242,11 @@ func openCallLog(dir, uuid string) *eventlog.Writer {
 	return lg
 }
 
-// audioSocketSink writes agent audio back to Asterisk and hands actions to the
+// outboundFrames is how much agent audio may queue before the engine is made
+// to wait — two seconds, well past any single sentence.
+const outboundFrames = 100
+
+// audioSocketSink queues agent audio for the stream and hands actions to the
 // control channel, because AudioSocket carries no actions of its own (ADR-0004).
 type audioSocketSink struct {
 	ctx     context.Context
@@ -245,8 +255,7 @@ type audioSocketSink struct {
 	ctl     control.Controller
 	channel string
 
-	pace time.Duration
-	next time.Time
+	out chan []byte
 }
 
 // Message forwards actions to the switch. Other message types are already in
@@ -270,26 +279,48 @@ func (s *audioSocketSink) Message(m wire.Message) error {
 	return nil
 }
 
-// Audio writes one PCM frame, paced at real time.
+// Audio queues one frame for the stream. The copy is deliberate: the speaker
+// may reuse its buffer once this returns.
 func (s *audioSocketSink) Audio(pcm []byte) error {
-	s.waitForSlot()
-	return writeFrame(s.conn, asAudio8k, pcm)
+	frame := make([]byte, len(pcm))
+	copy(frame, pcm)
+	select {
+	case s.out <- frame:
+		return nil
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
 }
 
-// waitForSlot spaces frames out. AudioSocket is TCP and has no flow control of
-// its own, so writing a whole sentence at once hands Asterisk a burst it has to
-// buffer and play late.
-func (s *audioSocketSink) waitForSlot() {
-	if s.pace <= 0 {
-		return
+// streamAudio keeps frames flowing for the whole call, sending silence
+// whenever the agent has nothing queued.
+//
+// This is not a nicety. Asterisk's AudioSocket gives up after two seconds
+// without traffic — MAX_WAIT_TIMEOUT_MSEC in app_audiosocket.c, which the
+// source notes is hard-coded — so a server that only speaks when it has
+// something to say gets hung up on mid-call. It is a real-time media stream,
+// not a message channel.
+func streamAudio(ctx context.Context, conn net.Conn, out <-chan []byte, pace time.Duration) {
+	silence := media.Silence(media.FrameBytes)
+	tick := time.NewTicker(pace)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			frame := silence
+			select {
+			case queued := <-out:
+				frame = queued
+			default: // nothing to say; keep the stream alive
+			}
+			if err := writeFrame(conn, asAudio8k, frame); err != nil {
+				return // the call is going away; the pump loop reports why
+			}
+		}
 	}
-	now := time.Now()
-	if s.next.IsZero() || now.After(s.next) {
-		s.next = now.Add(s.pace)
-		return
-	}
-	time.Sleep(s.next.Sub(now))
-	s.next = s.next.Add(s.pace)
 }
 
 func readFrame(r io.Reader) (kind byte, payload []byte, err error) {

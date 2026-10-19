@@ -31,6 +31,39 @@ const (
 
 const testUUID = "7a1f1f3e-0d1a-4a0e-9a1b-2c3d4e5f6071"
 
+// speechMarker fills a frame so tests can tell the agent's voice from the
+// silence the stream sends whenever there is nothing to say.
+const speechMarker = 0x41
+
+// markerSpeaker is brain.Silence with a signature, so "did the agent speak?"
+// is a different question from "is the stream alive?".
+type markerSpeaker struct{ frames int }
+
+func (m markerSpeaker) Frames(string) [][]byte {
+	n := m.frames
+	if n <= 0 {
+		n = 2
+	}
+	out := make([][]byte, n)
+	for i := range out {
+		frame := make([]byte, media.FrameBytes)
+		for j := range frame {
+			frame[j] = speechMarker
+		}
+		out[i] = frame
+	}
+	return out
+}
+
+func isSpeech(frame []byte) bool {
+	for _, b := range frame {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // fakeChannels stands in for the AMI index.
 type fakeChannels struct{ info control.CallInfo }
 
@@ -87,17 +120,32 @@ func (a *asteriskClient) read() (byte, []byte) {
 	return hdr[0], payload
 }
 
-// readAudio drains frames until n audio frames have arrived.
-func (a *asteriskClient) readAudio(n int) [][]byte {
+// readSpeech drains the stream until n frames of the agent's voice have
+// arrived, ignoring the silence that keeps the connection alive.
+func (a *asteriskClient) readSpeech(n int) [][]byte {
 	a.t.Helper()
 	var out [][]byte
 	for len(out) < n {
 		kind, payload := a.read()
-		if kind == kindAudio {
+		if kind == kindAudio && isSpeech(payload) {
 			out = append(out, payload)
 		}
 	}
 	return out
+}
+
+// readSilence waits for n keepalive frames, which is how a test observes that
+// the stream stays alive while the agent has nothing to say.
+func (a *asteriskClient) readSilence(n int) int {
+	a.t.Helper()
+	got := 0
+	for got < n {
+		kind, payload := a.read()
+		if kind == kindAudio && !isSpeech(payload) {
+			got++
+		}
+	}
+	return got
 }
 
 // startAudioSocket runs the adapter on a local listener and dials it.
@@ -107,12 +155,12 @@ func startAudioSocket(t *testing.T, opts gateway.AudioSocketOptions) (*asteriskC
 		opts.Brain = testBrain()
 	}
 	if opts.Speaker == nil {
-		opts.Speaker = brain.Silence{FramesPerSentence: 2}
+		opts.Speaker = markerSpeaker{frames: 2}
 	}
 	if opts.LogDir == "" {
 		opts.LogDir = t.TempDir()
 	}
-	opts.FramePace = -1 // no real-time pacing in tests
+	opts.FramePace = time.Millisecond // run the stream fast in tests
 	opts.ChannelWait = 200 * time.Millisecond
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -134,7 +182,7 @@ func TestAudioSocketGreetsWithAudio(t *testing.T) {
 	as, _ := startAudioSocket(t, gateway.AudioSocketOptions{})
 	as.sendUUID(testUUID)
 
-	frames := as.readAudio(2)
+	frames := as.readSpeech(2)
 	for i, f := range frames {
 		if len(f) != media.FrameBytes {
 			t.Fatalf("greeting frame %d is %d bytes, want %d", i, len(f), media.FrameBytes)
@@ -149,10 +197,10 @@ func TestAudioSocketDTMFDrivesTheCall(t *testing.T) {
 		Channels: fakeChannels{control.CallInfo{Channel: "PJSIP/alice-1", Hint: "+254722000000"}},
 	})
 	as.sendUUID(testUUID)
-	as.readAudio(2) // greeting
+	as.readSpeech(2) // greeting
 
 	as.sendDTMF('1')
-	as.readAudio(2) // the reply to the digit
+	as.readSpeech(2) // the reply to the digit
 
 	done := waitFor(t, func() bool { return len(ctl.Performed()) > 0 })
 	if !done {
@@ -202,9 +250,9 @@ func TestAudioSocketWritesAReplayableLog(t *testing.T) {
 		Control:  &control.Loopback{},
 	})
 	as.sendUUID(testUUID)
-	as.readAudio(2)
+	as.readSpeech(2)
 	as.sendDTMF('1')
-	as.readAudio(2)
+	as.readSpeech(2)
 	as.send(kindTerminate, nil)
 
 	path := dir + "/" + testUUID + ".jsonl"
@@ -243,7 +291,7 @@ func TestAudioSocketRecordsRefusedActionAndKeepsTheCall(t *testing.T) {
 	as.sendUUID(testUUID)
 
 	// The greeting still reaches the caller even though the action failed.
-	as.readAudio(2)
+	as.readSpeech(2)
 
 	path := dir + "/" + testUUID + ".jsonl"
 	waitFor(t, func() bool {
@@ -298,12 +346,12 @@ func TestAudioSocketCollectsSensitiveDigitsWithoutLoggingThem(t *testing.T) {
 		Channels: fakeChannels{control.CallInfo{Channel: "PJSIP/alice-1"}},
 	})
 	as.sendUUID(testUUID)
-	as.readAudio(2) // "Enter your PIN."
+	as.readSpeech(2) // "Enter your PIN."
 
 	for i := 0; i < len(pin); i++ {
 		as.sendDTMF(pin[i])
 	}
-	as.readAudio(2) // "Thank you."
+	as.readSpeech(2) // "Thank you."
 
 	path := dir + "/" + testUUID + ".jsonl"
 	raw, err := os.ReadFile(path)
@@ -350,4 +398,42 @@ func waitFor(t *testing.T, cond func() bool) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
+}
+
+// Asterisk hangs up an AudioSocket connection after two seconds without
+// traffic, so the stream has to keep running when the agent is silent. This is
+// the regression test for a bug only a real switch revealed.
+func TestAudioSocketKeepsTheStreamAliveWhenIdle(t *testing.T) {
+	as, _ := startAudioSocket(t, gateway.AudioSocketOptions{
+		Brain:   &brain.Scripted{Rules: []brain.Rule{{Match: "*", Say: []string{"Hello."}}}},
+		Speaker: markerSpeaker{frames: 2},
+	})
+	as.sendUUID(testUUID)
+
+	as.readSpeech(2) // the greeting
+
+	// Nothing more will be said, yet frames must keep coming.
+	if got := as.readSilence(10); got != 10 {
+		t.Fatalf("read %d keepalive frames, want 10", got)
+	}
+}
+
+func TestAudioSocketKeepalivesAreWellFormedFrames(t *testing.T) {
+	as, _ := startAudioSocket(t, gateway.AudioSocketOptions{
+		Brain:   &brain.Scripted{Rules: []brain.Rule{{Match: "*", Say: []string{"Hello."}}}},
+		Speaker: markerSpeaker{frames: 1},
+	})
+	as.sendUUID(testUUID)
+	as.readSpeech(1)
+
+	// A short frame would be a protocol violation Asterisk would reject.
+	for i := 0; i < 5; i++ {
+		kind, payload := as.read()
+		if kind != kindAudio {
+			continue
+		}
+		if len(payload) != media.FrameBytes {
+			t.Fatalf("frame %d is %d bytes, want %d", i, len(payload), media.FrameBytes)
+		}
+	}
 }
