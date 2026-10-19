@@ -50,6 +50,20 @@ client                              gateway
 Every server message carries a monotonically increasing `seq` and an `at` (RFC 3339). The sequence is
 what a replay relies on.
 
+A client may stamp its own `seq` and `at` on the messages it sends — `start`, `dtmf`, `stop` — as the
+reference SDK does. The server accepts them and relies on neither; the two sequences are independent
+counters. `dtmf` travels in both directions: the client sends one without `seq`/`at`, and the gateway
+echoes it back as an event carrying both.
+
+**The gateway validates every inbound text frame against the schema.** A message that does not match
+is answered with an `error` (`code: "invalid_message"`, or `"bad_start"` for the opening message) and
+is not acted on. A rejected message does not end the call — only a rejected `start` does, since
+without it there is no call.
+
+Worked examples of every message, in both forms, are in
+[`../testdata/contract/messages.jsonl`](../testdata/contract/messages.jsonl). Both the Go and the
+TypeScript test suites validate that file against the schema, so it cannot drift from either.
+
 ## 3a. Collecting digits, and redaction
 
 `read_digits` asks the engine to collect a group of keypad digits rather than

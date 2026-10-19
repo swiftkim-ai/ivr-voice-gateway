@@ -24,6 +24,16 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-19 Cross-language contract test. One golden fixture, `testdata/contract/messages.jsonl`,
+  validated by Go and TypeScript against the same schema file. Go proves `wire.Message` carries every
+  field; TypeScript proves the same at compile time, since its types vanish at runtime. Both drift
+  guards were checked by deliberately adding a field to the schema and watching each fail.
+- 2026-10-19 The fixtures found two real contract bugs. The schema forbade `seq`/`at` on `dtmf`,
+  `start` and `stop`, yet the engine stamps them on every message it emits and the reference SDK
+  stamps them on everything it sends — so the gateway and its own client were both emitting messages
+  the contract rejected. Fixed additively by allowing them, which v1 permits.
+- 2026-10-19 The WebSocket boundary now validates inbound messages instead of trusting them, closing
+  the known issue carried since Phase 0. A rejected message is answered and the call continues.
 - 2026-10-19 Phase 1 shipped and proved end to end against the real binary. A scripted stand-in for
   Asterisk served AMI and placed an AudioSocket call: greeting → DTMF `2` → account number `48217#`
   keyed mid-call → the agent read it back → `Redirect` to extension 200 arrived on the manager
@@ -52,8 +62,9 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 
 ## Next (ordered)
 1. Test against a real Asterisk, not the scripted stand-in: module load, dialplan reload, softphone.
-2. Cross-language contract test: one fixture validated by both Go and TS.
-3. Phase 2: `ivrvg dial` and `ivrvg map` — the same tools in reverse.
+2. Phase 2: `ivrvg dial` and `ivrvg map` — the same tools in reverse.
+3. Consider generating the Go and TS types from the schema (ADR-0005), now that the fixture proves
+   where they drift.
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.
@@ -73,9 +84,12 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 - Phase 0 runs locally only; the shared production server is out of scope.
 
 ## Known issues / deferred
-- `schema/` is not yet enforced at runtime (messages are trusted); add validation in Phase 1.
+- AudioSocket frames are not schema-checked: that transport carries audio and single digits, not
+  JSON, so there is nothing to validate. The WebSocket path is checked.
 - No auth beyond a `token` query param placeholder.
-- Hand-written Go/TS types can drift until codegen (ADR-0005).
+- Hand-written Go/TS types still are not generated (ADR-0005), but a golden fixture now pins them:
+  `testdata/contract/messages.jsonl` is validated by both languages, and both fail if a contract
+  field is missing on their side.
 - `internal/media` mu-law still has no callers: AudioSocket carries SLIN, which is already the
   engine's format. It becomes load-bearing for a Twilio Media Streams adapter or raw RTP.
 - **No real Asterisk has been dialled.** Phase 1 is proved against a scripted stand-in that speaks
