@@ -12,6 +12,7 @@ export type WireMessage =
   | Transcript
   | Reply
   | Dtmf
+  | Digits
   | Action
   | Stop
   | Ended
@@ -43,6 +44,20 @@ export interface Dtmf extends BaseMessage {
   type: "dtmf";
   digit: string;
   sensitive?: boolean;
+}
+
+export interface Digits extends BaseMessage {
+  type: "digits";
+  /** How many digits the caller entered. */
+  count: number;
+  /** What was collected, echoed from the read_digits action. */
+  label?: string;
+  /** The digits entered. Absent when redacted is true. */
+  digits?: string;
+  /** True when the group was collected as sensitive. */
+  redacted?: boolean;
+  /** Keyed correlation token standing in for a redacted group. */
+  hash?: string;
 }
 
 export interface Action extends BaseMessage {

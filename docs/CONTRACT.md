@@ -42,12 +42,49 @@ client                              gateway
 | → | `stop` | Caller hung up / leg ending. |
 | ← | `transcript` | Recognised caller speech (`final` false while refining). |
 | ← | `reply` | A sentence the agent will speak; its audio frames follow. |
+| ← | `digits` | A completed `read_digits` group. Redacted groups carry `count` and `hash` only. |
 | ← | `action` | The agent acts: `send_dtmf`, `route`, `transfer`, `play_prompt`, `park`, `hangup`, `read_digits`. |
 | ← | `call_ended` | Call closed, log flushed. |
 | ← | `error` | Protocol or provider error (`code`, `message`). |
 
 Every server message carries a monotonically increasing `seq` and an `at` (RFC 3339). The sequence is
 what a replay relies on.
+
+## 3a. Collecting digits, and redaction
+
+`read_digits` asks the engine to collect a group of keypad digits rather than
+report each one. Its `args`:
+
+| Arg | Meaning |
+|---|---|
+| `label` | What is being collected (`"account"`, `"card"`). Echoed back on the result. |
+| `count` | How many digits to expect. |
+| `terminator` | A digit that ends the group early. Defaults to `#` when no `count` is given, so a group always has a way to close. |
+| `sensitive` | When true the digits are redacted — see below. |
+
+The group is reported once, as a `digits` message, when it closes:
+
+```json
+{ "type": "digits", "seq": 7, "at": "…", "label": "account", "count": 5, "digits": "12345" }
+```
+
+A **sensitive** group never yields its digits. The engine reduces it to a count
+and a keyed token before anything is written, so the digits reach neither the
+append-only event log nor the model:
+
+```json
+{ "type": "digits", "seq": 7, "at": "…", "label": "card", "count": 16,
+  "redacted": true, "hash": "9f2c1b7e4a0d3c55" }
+```
+
+The token is a truncated HMAC, not a bare hash: a card number or PIN is short
+enough that an unkeyed digest is recoverable by brute force. It exists so the
+same entry can be recognised across calls, and it is not a secret. The key is
+deployment configuration and never appears in the log.
+
+Replay stays deterministic because the model is fed the same surrogate the
+recording holds — the digits themselves are not needed to reproduce the
+decision.
 
 ## 4. The control channel (important)
 

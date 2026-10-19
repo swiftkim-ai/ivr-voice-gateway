@@ -5,6 +5,7 @@ export type {
   Transcript,
   Reply,
   Dtmf,
+  Digits,
   Action,
   Stop,
   Ended,

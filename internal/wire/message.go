@@ -25,6 +25,13 @@ type Message struct {
 	Digit     string `json:"digit,omitempty"`
 	Sensitive bool   `json:"sensitive,omitempty"`
 
+	// digits (a completed read_digits group)
+	Label    string `json:"label,omitempty"`
+	Digits   string `json:"digits,omitempty"`
+	Count    int    `json:"count,omitempty"`
+	Redacted bool   `json:"redacted,omitempty"`
+	Hash     string `json:"hash,omitempty"`
+
 	// action
 	Kind string         `json:"kind,omitempty"`
 	Args map[string]any `json:"args,omitempty"`

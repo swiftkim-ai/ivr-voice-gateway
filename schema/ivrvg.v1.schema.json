@@ -9,6 +9,7 @@
     { "$ref": "#/$defs/Transcript" },
     { "$ref": "#/$defs/Reply" },
     { "$ref": "#/$defs/Dtmf" },
+    { "$ref": "#/$defs/Digits" },
     { "$ref": "#/$defs/Action" },
     { "$ref": "#/$defs/Stop" },
     { "$ref": "#/$defs/Ended" },
@@ -79,6 +80,23 @@
         "type": { "const": "dtmf" },
         "digit": { "type": "string", "pattern": "^[0-9*#ABCD]$" },
         "sensitive": { "type": "boolean", "default": false, "description": "When true the digit group is redacted from the transcript and never sent to the model." }
+      },
+      "additionalProperties": false
+    },
+
+    "Digits": {
+      "type": "object",
+      "description": "server -> client. A completed read_digits group. A sensitive group carries count and hash only: the digits themselves are never written to the event log nor sent to the model.",
+      "required": ["type", "seq", "at", "count"],
+      "properties": {
+        "type": { "const": "digits" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "label": { "type": "string", "description": "What was collected, echoed from the read_digits action." },
+        "count": { "type": "integer", "minimum": 0, "description": "How many digits the caller entered." },
+        "digits": { "type": "string", "pattern": "^[0-9*#ABCD]*$", "description": "The digits entered. Absent when redacted is true." },
+        "redacted": { "type": "boolean", "default": false, "description": "True when the group was collected as sensitive." },
+        "hash": { "type": "string", "description": "Keyed correlation token (truncated HMAC-SHA256) standing in for a redacted group, so the same entry can be recognised across calls without storing it. Present only when redacted is true." }
       },
       "additionalProperties": false
     },
