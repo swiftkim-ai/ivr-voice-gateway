@@ -24,6 +24,15 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-19 CI cleaned up. Every job had been carrying Node 20 deprecation warnings because the
+  actions were two to three majors behind (checkout/setup-node v4, setup-go v5, all now v7), which
+  is what the annotations on every run reported. The runner is pinned to ubuntu-24.04 rather than
+  ubuntu-latest, which began migrating to Ubuntu 26 on 2026-10-19. Go and Node versions now come
+  from go.mod and .nvmrc instead of being repeated in the workflow. Verified: run 39247610330 is
+  green with no annotations.
+  Note for anyone reading the Actions tab: the one failed run belongs to the initial commit
+  62ae876, which failed `tsc --noEmit` on two type errors fixed in 27ea8c4. Everything since is
+  green.
 - 2026-10-19 Cross-language contract test. One golden fixture, `testdata/contract/messages.jsonl`,
   validated by Go and TypeScript against the same schema file. Go proves `wire.Message` carries every
   field; TypeScript proves the same at compile time, since its types vanish at runtime. Both drift
