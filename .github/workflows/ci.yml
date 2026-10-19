@@ -14,6 +14,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
+      # Formatting was a convention nothing checked, so a badly formatted
+      # commit used to pass. Print the offenders rather than just failing.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - run: go vet ./...
       - run: go build ./...
       - run: go test -race ./...
@@ -25,4 +35,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: cd sdk/ts && npm install --no-audit --no-fund && npx tsc --noEmit && node --test test/*.test.ts
+      # npm ci installs exactly what the lock file pins; npm install may
+      # silently resolve something newer.
+      - run: npm ci --no-audit --no-fund
+        working-directory: sdk/ts
+      - run: npx tsc --noEmit
+        working-directory: sdk/ts
+      - run: node --test test/*.test.ts
+        working-directory: sdk/ts
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The schema is the contract's source of truth, so a malformed one is a
+      # build failure, not something to discover at integration time.
+      - name: schema parses
+        run: python3 -c "import json; json.load(open('schema/ivrvg.v1.schema.json'))"
+      # The shipped manager config is a template. If a real password is ever
+      # edited into it and committed, catch it here.
+      - name: config template carries no real secret
+        run: grep -q '^secret = change-me$' deploy/asterisk/manager.conf
