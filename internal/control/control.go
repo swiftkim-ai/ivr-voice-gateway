@@ -28,5 +28,21 @@ type Action struct {
 	Args map[string]any `json:"args,omitempty"`
 }
 
-// Valid reports whether kind is one of the defined actions.
+// Originate describes an outbound call request.
+type Originate struct {
+	Channel     string
+	Exten       string
+	Context     string
+	Priority    int
+	CallerID    string
+	Timeout     int
+	Async       bool
+	Application string
+	Data        string
+	Variables   map[string]string
+	CallID      string
+	Hint        string
+}
+
+// Valid reports whether kind is one of defined actions.
 func Valid(kind string) bool { return kinds[kind] }

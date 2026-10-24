@@ -176,6 +176,47 @@ func (a *AMI) Do(ctx context.Context, channel string, act Action) error {
 	return fmt.Errorf("control: ami: unknown action %q", act.Kind)
 }
 
+// Originate places an outbound call via AMI.
+func (a *AMI) Originate(ctx context.Context, o Originate) error {
+	ctx, cancel := a.withTimeout(ctx)
+	defer cancel()
+	fields := []field{
+		{"Action", "Originate"},
+	}
+	if o.Channel != "" {
+		fields = append(fields, field{"Channel", o.Channel})
+	}
+	if o.Exten != "" {
+		fields = append(fields, field{"Exten", o.Exten})
+	}
+	if o.Context != "" {
+		fields = append(fields, field{"Context", o.Context})
+	}
+	if o.Priority != 0 {
+		fields = append(fields, field{"Priority", strconv.Itoa(o.Priority)})
+	}
+	if o.CallerID != "" {
+		fields = append(fields, field{"CallerID", o.CallerID})
+	}
+	if o.Timeout > 0 {
+		fields = append(fields, field{"Timeout", strconv.Itoa(o.Timeout)})
+	}
+	if o.Async {
+		fields = append(fields, field{"Async", "true"})
+	}
+	if o.Application != "" {
+		fields = append(fields, field{"Application", o.Application})
+	}
+	if o.Data != "" {
+		fields = append(fields, field{"Data", o.Data})
+	}
+	for k, v := range o.Variables {
+		fields = append(fields, field{"Variable", k + "=" + v})
+	}
+	_, err := a.call(ctx, fields)
+	return err
+}
+
 // Close logs off and closes the connection. It is safe to call more than once.
 func (a *AMI) Close() error {
 	a.once.Do(func() {
