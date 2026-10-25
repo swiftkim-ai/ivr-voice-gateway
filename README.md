@@ -76,9 +76,9 @@ The thesis of the project, made real.
 
 ### Phase 2 — Test-driver
 The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
-- **Current status:** `ivrvg dial` requests an asynchronous AMI originate. It does not yet connect
-  outbound media to the call engine or write a replayable call log. `ivrvg map` will be added with
-  actual menu traversal; no map is emitted yet.
+- **Current status:** `ivrvg dial` originates a configurable Asterisk channel into `ivrvg-out`.
+  The included dialplan connects answered calls to AudioSocket, the existing call engine, and its
+  replayable JSONL log. IVR traversal and `ivrvg map` are still in progress.
 - `ivrvg dial` places outbound calls against any reachable IVR.
 - `ivrvg map` walks a menu tree via DTMF + speech and emits a flow map.
 - Assertions on outcomes; a release-to-release diff of the map.

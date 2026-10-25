@@ -100,6 +100,29 @@ Replay the call afterwards — this is the point of the event log:
 go run ./cmd/ivrvg replay data/calls/<uuid>.jsonl
 ```
 
+## 4a. Originate an outbound test call (Phase 2)
+
+The sample dialplan includes an `ivrvg-out` context. It runs after the destination answers, announces
+the call UUID to AMI, and connects the channel to the same AudioSocket listener. Configure an
+outbound channel pattern for your Asterisk endpoint or trunk, then run:
+
+```bash
+go run ./cmd/ivrvg dial \
+  -ami 127.0.0.1:5038 \
+  -channel 'PJSIP/{number}@my-trunk' \
+  -out-context ivrvg-out \
+  +15551234567
+```
+
+Replace `my-trunk` with the endpoint name configured in your Asterisk. The `{number}` placeholder is
+replaced with the final argument and must appear exactly once. Keep the gateway running with both
+`-audiosocket` and `-ami`; the manager user needs `read = call,user` and `write = call`. When the
+destination answers, the call is handled and logged like an inbound AudioSocket call. Replay its
+`data/calls/<uuid>.jsonl` file with the command in §4.
+
+The `-ami-context` option on `serve` remains the context used by agent `route` and `transfer` actions.
+It is separate from `-out-context`, which starts the outbound call session.
+
 ## 5. How the pieces find each other
 
 AudioSocket identifies a call by a UUID and carries nothing else about it, so

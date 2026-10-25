@@ -20,7 +20,7 @@ diffable flow maps using the existing call engine and event log.
 | Real-switch integration test | ✅ done | `make integration-test` (Docker) |
 | DTMF in | ✅ done | AudioSocket frame `0x03`; no AMI correlation needed |
 | Sensitive digit redaction | ✅ done | count + keyed token; replays without the digits |
-| AMI outbound originate (`ivrvg dial`) | 🟡 started | Requests an async AMI originate; outbound media and call event logging are not connected yet. |
+| AMI outbound originate (`ivrvg dial`) | 🟡 started | Originate an Asterisk channel into `ivrvg-out`; answered calls use AudioSocket and the existing JSONL logging/replay path. |
 | IVR mapping (`ivrvg map`) | ⬜ not started | Removed the empty-map command; implement menu traversal before exposing it again. |
 | Warm transfer + console | ⬜ not started | Phase 3 |
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
@@ -29,8 +29,13 @@ diffable flow maps using the existing call engine and event log.
 - 2026-10-25 Started Phase 2. The pushed `ivrvg dial` command requests an asynchronous AMI originate;
   it now reports AMI refusals as errors and describes the result as accepted (AMI acceptance does not
   prove the remote endpoint answered). Removed the `map` command because it only returned an empty
-  map and did not explore an IVR. The next implementation step is connecting outbound media and call
-  events to the existing engine and event log, then building traversal and map output on that path.
+  map and did not explore an IVR.
+- 2026-10-25 Connected outbound origination to the existing call path. `ivrvg dial` now accepts an
+  Asterisk channel template, creates a UUID, and enters a configurable dialplan context after answer.
+  The shipped `ivrvg-out` context announces that UUID and opens AudioSocket, so the existing gateway
+  writes the call log and serves/replays the outbound session. The channel template is deployment
+  specific (for example, `PJSIP/{number}@my-trunk`); speech recognition and menu traversal remain
+  later Phase 2 work.
 - 2026-10-19 **Tested against a real Asterisk at last** (22.5.2 in a container) and the full Phase 1
   proof passes: greeting → DTMF `2` → account number `48217#` keyed mid-call → the agent reads it
   back → AMI `Redirect` moves the real channel into `200@default`, which the dialplan confirms →
@@ -92,8 +97,8 @@ diffable flow maps using the existing call engine and event log.
   let tsc accept the `.ts` specifier and rewrite it to `.js` on emit.
 
 ## Next (ordered)
-1. Connect the AMI originated call to the media adapter and call engine, and record its events in the
-   append-only log so outbound calls can be replayed.
+1. Add a repeatable Asterisk integration path that simulates an answered outbound channel and verifies
+   the UUID join, media session, event log, and replay.
 2. Implement traversal over observed DTMF/speech choices and emit a real flow map; add release-to-
    release map comparison after the map format is established.
 3. Consider generating the Go and TS types from the schema (ADR-0005), now that the fixture proves
@@ -117,9 +122,9 @@ diffable flow maps using the existing call engine and event log.
 - Phase 0 runs locally only; the shared production server is out of scope.
 
 ## Known issues / deferred
-- Phase 2 outbound originate is only accepted by AMI; there is no outbound media bridge, call event
-  logging, menu traversal, or flow map yet. The `map` command was removed until it can produce real
-  observations.
+- Phase 2 outbound calls require a configured Asterisk channel template and `ivrvg-out` context.
+  Speech recognition, automated menu traversal, and a flow map are not implemented yet; `map` stays
+  unavailable until it can produce real observations.
 - AudioSocket frames are not schema-checked: that transport carries audio and single digits, not
   JSON, so there is nothing to validate. The WebSocket path is checked.
 - No auth beyond a `token` query param placeholder.

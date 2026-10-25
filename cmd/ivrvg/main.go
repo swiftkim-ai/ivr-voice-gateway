@@ -2,7 +2,7 @@
 // replays recorded calls deterministically, and writes sample recordings.
 //
 //	ivrvg serve  [-addr :8099] [-logdir data/calls] [-audiosocket :8090] [-ami host:5038]
-//	ivrvg dial   [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-app ...] [-callerid ...] <number>
+//	ivrvg dial   -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] <number>
 //	ivrvg replay <call.jsonl>
 //	ivrvg sample [-out testdata/calls/example.jsonl]
 //	ivrvg version
@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/brain"
@@ -70,7 +71,7 @@ func usage() {
 
   serve   [-addr :8099] [-logdir data/calls]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
-  dial    [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-app ...] [-callerid ...] <number>
+  dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] [-callerid ...] <number>
   replay  <call.jsonl>
   sample  [-out testdata/calls/example.jsonl]
   version
@@ -244,16 +245,14 @@ func demoBrain() brain.Brain {
 	}}
 }
 
-// dialApp is the default dialplan context used for the Local channel.
-const dialApp = "ivrvg-out"
+const outboundContext = "ivrvg-out"
 
 func cmdDial(args []string) error {
 	fs := flag.NewFlagSet("dial", flag.ExitOnError)
 	amiAddr := fs.String("ami", "", "Asterisk manager address host:port")
 	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
-	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
-	exten := fs.String("exten", "", "extension to dial through (defaults to the number)")
-	app := fs.String("app", dialApp, "dialplan application/context to send the call to")
+	channelTemplate := fs.String("channel", "", "Asterisk channel template with one {number}, e.g. PJSIP/{number}@trunk")
+	outContext := fs.String("out-context", outboundContext, "dialplan context run when the called party answers")
 	callerID := fs.String("callerid", "ivrvg", "caller id to present")
 	_ = fs.Parse(args)
 	if len(fs.Args()) < 1 {
@@ -262,32 +261,56 @@ func cmdDial(args []string) error {
 	if *amiAddr == "" {
 		return fmt.Errorf("dial: -ami is required")
 	}
-	ami, err := dialManager(*amiAddr, *amiUser, *amiContext)
+	number := fs.Args()[0]
+	channel, err := outboundChannel(*channelTemplate, number)
+	if err != nil {
+		return err
+	}
+	callID, err := newCallID()
+	if err != nil {
+		return fmt.Errorf("dial: generate call id: %w", err)
+	}
+	ami, err := dialManager(*amiAddr, *amiUser, "default")
 	if err != nil {
 		return err
 	}
 	defer ami.Close()
 
-	number := fs.Args()[0]
-	dest := *exten
-	if dest == "" {
-		dest = number
-	}
-	callID := fmt.Sprintf("out-%d", time.Now().UnixNano())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := ami.Originate(ctx, control.Originate{
-		Channel:   "Local/" + dest + "@" + *app + "/n",
-		Context:   *amiContext,
-		Exten:     dest,
+		Channel:   channel,
+		Context:   *outContext,
+		Exten:     "s",
 		Priority:  1,
 		CallerID:  *callerID,
 		Timeout:   30000,
 		Async:     true,
-		Variables: map[string]string{"IVRVG_CALL_ID": callID, "IVRVG_HINT": number},
+		Variables: map[string]string{"IVRVG_UUID": callID},
 	}); err != nil {
-		return fmt.Errorf("dial: originate %s: %w", number, err)
+		return fmt.Errorf("dial: originate call %s: %w", callID, err)
 	}
-	fmt.Printf("origination accepted for %s (call %s)\n", number, callID)
+	fmt.Printf("origination accepted (call %s)\n", callID)
 	return nil
+}
+
+func outboundChannel(template, number string) (string, error) {
+	if strings.Count(template, "{number}") != 1 {
+		return "", fmt.Errorf("dial: -channel must contain exactly one {number} placeholder")
+	}
+	if number == "" || strings.ContainsAny(number+template, "\r\n") {
+		return "", fmt.Errorf("dial: number and -channel must be non-empty and contain no line breaks")
+	}
+	return strings.Replace(template, "{number}", number, 1), nil
+}
+
+func newCallID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	id[6] = id[6]&0x0f | 0x40
+	id[8] = id[8]&0x3f | 0x80
+	encoded := hex.EncodeToString(id[:])
+	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
 }

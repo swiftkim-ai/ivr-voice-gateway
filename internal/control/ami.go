@@ -211,7 +211,15 @@ func (a *AMI) Originate(ctx context.Context, o Originate) error {
 		fields = append(fields, field{"Data", o.Data})
 	}
 	for k, v := range o.Variables {
+		if strings.ContainsAny(k, "=\r\n") {
+			return fmt.Errorf("control: ami originate: invalid variable name %q", k)
+		}
 		fields = append(fields, field{"Variable", k + "=" + v})
+	}
+	for _, f := range fields {
+		if strings.ContainsAny(f.v, "\r\n") {
+			return fmt.Errorf("control: ami originate: line break in %s", f.k)
+		}
 	}
 	_, err := a.call(ctx, fields)
 	return err
