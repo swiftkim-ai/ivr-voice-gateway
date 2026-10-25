@@ -1,9 +1,9 @@
 # CONTEXT — IVR Voice Gateway
-_Last updated: 2026-10-19 by project owner_
+_Last updated: 2026-10-25_
 
 ## Current goal
-Phase 1 — the control plane: attach to a real Asterisk, carry the agent's actions onto the switch,
-and collect keypad digits (redacting the sensitive ones) without losing deterministic replay.
+Phase 2 — the test-driver: originate outbound calls, drive IVR menus, and produce deterministic,
+diffable flow maps using the existing call engine and event log.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -20,11 +20,17 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 | Real-switch integration test | ✅ done | `make integration-test` (Docker) |
 | DTMF in | ✅ done | AudioSocket frame `0x03`; no AMI correlation needed |
 | Sensitive digit redaction | ✅ done | count + keyed token; replays without the digits |
-| Test-driver (`dial`/`map`) | ⬜ not started | Phase 2 |
+| AMI outbound originate (`ivrvg dial`) | 🟡 started | Requests an async AMI originate; outbound media and call event logging are not connected yet. |
+| IVR mapping (`ivrvg map`) | ⬜ not started | Removed the empty-map command; implement menu traversal before exposing it again. |
 | Warm transfer + console | ⬜ not started | Phase 3 |
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-25 Started Phase 2. The pushed `ivrvg dial` command requests an asynchronous AMI originate;
+  it now reports AMI refusals as errors and describes the result as accepted (AMI acceptance does not
+  prove the remote endpoint answered). Removed the `map` command because it only returned an empty
+  map and did not explore an IVR. The next implementation step is connecting outbound media and call
+  events to the existing engine and event log, then building traversal and map output on that path.
 - 2026-10-19 **Tested against a real Asterisk at last** (22.5.2 in a container) and the full Phase 1
   proof passes: greeting → DTMF `2` → account number `48217#` keyed mid-call → the agent reads it
   back → AMI `Redirect` moves the real channel into `200@default`, which the dialplan confirms →
@@ -86,10 +92,10 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
   let tsc accept the `.ts` specifier and rewrite it to `.js` on emit.
 
 ## Next (ordered)
-1. Decide whether to support DTMF on Asterisk older than 20.15 by reading digits from AMI
-   `DTMFEnd` events instead. It would add a second inbound path and a concurrency change (the
-   engine is currently driven only by the AudioSocket goroutine), so it needs a decision first.
-2. Phase 2: `ivrvg dial` and `ivrvg map` — the same tools in reverse.
+1. Connect the AMI originated call to the media adapter and call engine, and record its events in the
+   append-only log so outbound calls can be replayed.
+2. Implement traversal over observed DTMF/speech choices and emit a real flow map; add release-to-
+   release map comparison after the map format is established.
 3. Consider generating the Go and TS types from the schema (ADR-0005), now that the fixture proves
    where they drift.
 
@@ -111,6 +117,9 @@ and collect keypad digits (redacting the sensitive ones) without losing determin
 - Phase 0 runs locally only; the shared production server is out of scope.
 
 ## Known issues / deferred
+- Phase 2 outbound originate is only accepted by AMI; there is no outbound media bridge, call event
+  logging, menu traversal, or flow map yet. The `map` command was removed until it can produce real
+  observations.
 - AudioSocket frames are not schema-checked: that transport carries audio and single digits, not
   JSON, so there is nothing to validate. The WebSocket path is checked.
 - No auth beyond a `token` query param placeholder.

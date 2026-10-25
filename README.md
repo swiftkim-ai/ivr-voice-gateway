@@ -8,9 +8,10 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 1 (control plane)** — see [Roadmap](#roadmap). The gateway attaches to a real
-> Asterisk: audio and DTMF over AudioSocket, actions over AMI, every call replayable. Point a
-> softphone at it and no carrier is needed — see [`docs/ASTERISK.md`](docs/ASTERISK.md).
+> Status: **Phase 2 (test-driver) in progress** — `ivrvg dial` can request an asynchronous AMI
+> originate. Outbound media, replayable outbound sessions, and IVR mapping are still in progress.
+> The completed Phase 1 inbound path attaches to Asterisk over AudioSocket and AMI; see
+> [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
 
@@ -75,6 +76,9 @@ The thesis of the project, made real.
 
 ### Phase 2 — Test-driver
 The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
+- **Current status:** `ivrvg dial` requests an asynchronous AMI originate. It does not yet connect
+  outbound media to the call engine or write a replayable call log. `ivrvg map` will be added with
+  actual menu traversal; no map is emitted yet.
 - `ivrvg dial` places outbound calls against any reachable IVR.
 - `ivrvg map` walks a menu tree via DTMF + speech and emits a flow map.
 - Assertions on outcomes; a release-to-release diff of the map.

@@ -2,8 +2,7 @@
 // replays recorded calls deterministically, and writes sample recordings.
 //
 //	ivrvg serve  [-addr :8099] [-logdir data/calls] [-audiosocket :8090] [-ami host:5038]
-//	ivrvg dial   [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-logdir data/calls] <number>
-//	ivrvg map    [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-out ...] [-logdir data/calls] <number>
+//	ivrvg dial   [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-app ...] [-callerid ...] <number>
 //	ivrvg replay <call.jsonl>
 //	ivrvg sample [-out testdata/calls/example.jsonl]
 //	ivrvg version
@@ -13,7 +12,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -49,8 +47,6 @@ func main() {
 		err = cmdServe(os.Args[2:])
 	case "dial":
 		err = cmdDial(os.Args[2:])
-	case "map":
-		err = cmdMap(os.Args[2:])
 	case "replay":
 		err = cmdReplay(os.Args[2:])
 	case "sample":
@@ -74,8 +70,7 @@ func usage() {
 
   serve   [-addr :8099] [-logdir data/calls]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
-  dial    [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-app ...] [-callerid ...] [-logdir data/calls] <number>
-  map     [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-out ...] [-app ...] [-callerid ...] [-logdir data/calls] <number>
+  dial    [-ami host:5038] [-ami-user ivrvg] [-ami-context default] [-exten ...] [-app ...] [-callerid ...] <number>
   replay  <call.jsonl>
   sample  [-out testdata/calls/example.jsonl]
   version
@@ -92,13 +87,10 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", ":8099", "listen address for the media WebSocket")
 	logdir := fs.String("logdir", "data/calls", "directory for per-call event logs")
-	_ = logdir
 	asAddr := fs.String("audiosocket", "", "listen address for Asterisk AudioSocket (empty: off)")
 	amiAddr := fs.String("ami", "", "Asterisk manager address host:port (empty: off)")
 	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
-	_ = amiUser
 	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
-	_ = amiContext
 	_ = fs.Parse(args)
 
 	redactor, generated := redactionKey()
@@ -252,23 +244,17 @@ func demoBrain() brain.Brain {
 	}}
 }
 
-// dialTarget is where a dialled call should land after going through the gateway.
+// dialApp is the default dialplan context used for the Local channel.
 const dialApp = "ivrvg-out"
 
 func cmdDial(args []string) error {
 	fs := flag.NewFlagSet("dial", flag.ExitOnError)
 	amiAddr := fs.String("ami", "", "Asterisk manager address host:port")
 	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
-	_ = amiUser
 	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
-	_ = amiContext
 	exten := fs.String("exten", "", "extension to dial through (defaults to the number)")
 	app := fs.String("app", dialApp, "dialplan application/context to send the call to")
-	_ = app
 	callerID := fs.String("callerid", "ivrvg", "caller id to present")
-	_ = callerID
-	logdir := fs.String("logdir", "data/calls", "directory for per-call event logs")
-	_ = logdir
 	_ = fs.Parse(args)
 	if len(fs.Args()) < 1 {
 		return fmt.Errorf("dial: a number is required")
@@ -288,16 +274,6 @@ func cmdDial(args []string) error {
 		dest = number
 	}
 	callID := fmt.Sprintf("out-%d", time.Now().UnixNano())
-	logw, err := eventlog.Create(fmt.Sprintf("%s/%s.jsonl", *logdir, callID), callID)
-	if err != nil {
-		return err
-	}
-	defer logw.Close()
-
-	_ = logw
-	_ = *logdir
-	_ = *amiUser
-	// Use AMI Originate
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := ami.Originate(ctx, control.Originate{
@@ -310,76 +286,8 @@ func cmdDial(args []string) error {
 		Async:     true,
 		Variables: map[string]string{"IVRVG_CALL_ID": callID, "IVRVG_HINT": number},
 	}); err != nil {
-		// Fallback to simple message
-		log.Printf("ivrvg: dial originate: %v", err)
+		return fmt.Errorf("dial: originate %s: %w", number, err)
 	}
-	fmt.Printf("dialled %s (call %s)\n", number, callID)
+	fmt.Printf("origination accepted for %s (call %s)\n", number, callID)
 	return nil
-}
-
-func cmdMap(args []string) error {
-	fs := flag.NewFlagSet("map", flag.ExitOnError)
-	amiAddr := fs.String("ami", "", "Asterisk manager address host:port")
-	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
-	_ = amiUser
-	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
-	_ = amiContext
-	app := fs.String("app", dialApp, "dialplan application/context to send the call to")
-	_ = app
-	callerID := fs.String("callerid", "ivrvg", "caller id to present")
-	_ = callerID
-	out := fs.String("out", "", "write flow map to this file (defaults to stdout)")
-	logdir := fs.String("logdir", "data/calls", "directory for per-call event logs")
-	_ = logdir
-	_ = fs.Parse(args)
-	if len(fs.Args()) < 1 {
-		return fmt.Errorf("map: a number is required")
-	}
-	if *amiAddr == "" {
-		return fmt.Errorf("map: -ami is required")
-	}
-
-	// Run dial and collect the map
-	if err := cmdDial(args); err != nil {
-		return err
-	}
-
-	// For now, produce a minimal flow map from the log
-	// This is a simple implementation that satisfies the interface
-	m := map[string]any{
-		"target": fs.Args()[0],
-		"nodes":  []map[string]any{},
-		"paths":  []map[string]any{},
-	}
-	b, _ := jsonMarshal(m)
-	if *out != "" {
-		return writeFile(*out, b)
-	}
-	fmt.Println(string(b))
-	return nil
-}
-
-type dialChannel struct {
-	logw *eventlog.Writer
-}
-
-func (d *dialChannel) OnStart(callID string) {}
-func (d *dialChannel) OnEvent(ev eventlog.Event) {
-	if d.logw != nil {
-		_, _ = d.logw.Append(ev.Type, ev.Data)
-	}
-}
-
-func jsonMarshal(v any) ([]byte, error) {
-	return json.MarshalIndent(v, "", "  ")
-}
-
-func writeFile(path string, data []byte) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.Write(data)
-	return err
 }
