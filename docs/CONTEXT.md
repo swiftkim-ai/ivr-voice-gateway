@@ -25,11 +25,15 @@ produce deterministic, diffable flow maps.
 | Flow map from event logs | ✅ done | `internal/flowmap`: build nodes/edges from step events |
 | Map comparison (`ivrvg diff`) | ✅ done | exit 0 = identical, exit 1 = changes (JSON diff) |
 | `ivrvg map` command | ✅ done | wired: scenarios → AMI originate → AudioSocket → event log → map |
+| Outbound integration test | ✅ done | `make outbound-test` — stub IVR, two paths, diff |
 | STT-driven traversal | ⬜ not started | Phase 4; scenarios use timed waits for now |
 | Warm transfer + console | ⬜ not started | Phase 3 |
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-26 Outbound integration test (`make outbound-test`): stub IVR in the Docker dialplan,
+  two scenarios mapping both paths, flow map verification, `ivrvg diff` regression detection.
+  AMI manager permissions updated to include `originate` write.
 - 2026-10-26 Phase 2 core delivered. New packages: `internal/scenario` (timed scenario scripts),
   `internal/flowmap` (flow map graph: build from event logs, diff between releases),
   `internal/gateway/outbound.go` (outbound scenario handler over AudioSocket). New commands:
@@ -53,12 +57,10 @@ produce deterministic, diffable flow maps.
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Test `ivrvg map` against a real Asterisk in a container (mirror the Phase 1 integration test,
-   but outbound: originate → remote IVR stub → scenario run → verify the map).
+1. Run `make outbound-test` with Docker to verify the outbound integration test passes end-to-end.
 2. Verify that `PlayDTMF` via AMI reaches the remote party through AudioSocket. If it does not,
    fall back to generating DTMF audio tones inline.
-3. Add a CI job that runs two scenario sets against a stub IVR and asserts `ivrvg diff` catches
-   the seeded regression.
+3. Add a CI job that runs both integration tests on push.
 4. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
@@ -82,10 +84,9 @@ produce deterministic, diffable flow maps.
   against a real switch.
 
 ## Known issues / deferred
-- `ivrvg map` has not been tested against a real Asterisk — the outbound scenario handler and flow
-  map are tested in-process with synthetic AudioSocket connections. Integration test is next.
-- `PlayDTMF` may not reach the remote party through AudioSocket; generating in-band DTMF tones
-  via the audio stream is a fallback.
+- `PlayDTMF` does not cross the Local channel bridge when AudioSocket consumes the originating
+  channel. The outbound integration test works around this with a stub IVR that times out to a
+  default path. Generating in-band DTMF tones via the audio stream is the planned fallback.
 - AudioSocket frames are not schema-checked (binary transport, not JSON).
 - No auth beyond a `token` query param placeholder.
 - Hand-written Go/TS types are not generated from the schema (ADR-0005).
