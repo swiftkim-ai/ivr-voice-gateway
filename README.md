@@ -8,8 +8,10 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 2 (test-driver) in progress** — `ivrvg dial` can request an asynchronous AMI
-> originate. Outbound media, replayable outbound sessions, and IVR mapping are still in progress.
+> Status: **Phase 2 (test-driver) in progress** — `ivrvg map` runs scenario scripts against a
+> remote IVR over AudioSocket + AMI, builds a flow map of the observed menu tree, and `ivrvg diff`
+> compares maps between releases. Outbound calls originate via AMI, traverse the IVR by pressing
+> DTMF per the scenario, and produce replayable event logs. STT-driven traversal waits for Phase 4.
 > The completed Phase 1 inbound path attaches to Asterisk over AudioSocket and AMI; see
 > [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
@@ -74,14 +76,17 @@ The thesis of the project, made real.
 - **Proof:** a caller enters an account number by keypad mid-sentence; the agent reads it back,
   routes the call, and transfers it.
 
-### Phase 2 — Test-driver
+### Phase 2 — Test-driver 🟡
 The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
-- **Current status:** `ivrvg dial` originates a configurable Asterisk channel into `ivrvg-out`.
-  The included dialplan connects answered calls to AudioSocket, the existing call engine, and its
-  replayable JSONL log. IVR traversal and `ivrvg map` are still in progress.
 - `ivrvg dial` places outbound calls against any reachable IVR.
-- `ivrvg map` walks a menu tree via DTMF + speech and emits a flow map.
-- Assertions on outcomes; a release-to-release diff of the map.
+- `ivrvg map -scenario file.json` runs timed scenarios — each defines a path through the IVR
+  as a sequence of labelled waits and DTMF presses. Outbound calls originate via AMI, traverse
+  the IVR according to the script, and produce replayable JSONL event logs. The logs are merged
+  into a flow map: a JSON graph of observed nodes and edges.
+- `ivrvg diff before.json after.json` compares two flow maps and exits non-zero on any change.
+  Suitable for CI assertions on IVR regressions between releases.
+- STT-driven traversal (recognising prompts rather than following a timed script) waits for
+  Phase 4.
 - **Proof:** map a sample IVR automatically and catch a seeded regression.
 
 ### Phase 3 — Warm transfer + console
@@ -158,19 +163,22 @@ cd sdk/ts && npm install && npm test
 ## Repository layout
 
 ```
-cmd/ivrvg/         CLI: serve · replay · (dial · map in Phase 2)
-internal/call/     call engine + turn loop
-internal/eventlog/ append-only JSONL event log
-internal/media/    PCM16, 20 ms frames, G.711 mulaw
-internal/brain/    brain interface + scripted brain + tool registry
-internal/gateway/  wsmedia + audiosocket adapters
-internal/control/  control actions, the Controller seam, AMI client
-internal/replay/   deterministic replay
-schema/            the v1 contract (JSON Schema)
-deploy/asterisk/   dialplan and manager config that work as shipped
-docs/              CONTRACT.md · ARCHITECTURE · adr/ · CONTEXT.md
-sdk/ts/            TypeScript SDK (types + CallClient)
-testdata/calls/    recorded calls and golden fixtures
+cmd/ivrvg/          CLI: serve · dial · map · diff · replay · sample
+internal/call/      call engine + turn loop
+internal/eventlog/  append-only JSONL event log
+internal/media/     PCM16, 20 ms frames, G.711 mulaw
+internal/brain/     brain interface + scripted brain + tool registry
+internal/gateway/   wsmedia + audiosocket adapters + outbound scenario handler
+internal/control/   control actions, the Controller seam, AMI client
+internal/replay/    deterministic replay
+internal/scenario/  outbound test scenarios
+internal/flowmap/   IVR flow map: build from event logs, diff between releases
+schema/             the v1 contract (JSON Schema)
+deploy/asterisk/    dialplan and manager config that work as shipped
+docs/               CONTRACT.md · ARCHITECTURE · adr/ · CONTEXT.md
+sdk/ts/             TypeScript SDK (types + CallClient)
+testdata/calls/     recorded calls and golden fixtures
+testdata/scenarios/ sample scenario files
 ```
 
 ## Documentation

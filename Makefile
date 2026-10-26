@@ -1,5 +1,5 @@
 .PHONY: all build run run-asterisk replay sample test test-go test-ts typecheck \
-        check fmt fmt-check vet schema-check integration-test
+        check fmt fmt-check vet schema-check integration-test diff
 
 # What CI runs. Use this before pushing.
 check: fmt-check vet build test-go typecheck test-ts schema-check
@@ -53,6 +53,12 @@ fmt-check:
 # A real Asterisk in a container, a real call, real DTMF. Needs Docker.
 integration-test:
 	./deploy/asterisk/docker/run-integration-test.sh
+
+# Compare two flow maps; exit 1 if they differ. Pass BEFORE= and AFTER=.
+BEFORE ?= before.json
+AFTER  ?= after.json
+diff:
+	go run ./cmd/ivrvg diff $(BEFORE) $(AFTER)
 
 schema-check:
 	python3 -c "import json; json.load(open('schema/ivrvg.v1.schema.json'))"

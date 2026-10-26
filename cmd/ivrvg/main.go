@@ -1,10 +1,13 @@
 // Command ivrvg is the IVR Voice Gateway: it serves calls over the v1 contract,
-// replays recorded calls deterministically, and writes sample recordings.
+// replays recorded calls deterministically, maps remote IVRs, and diffs the
+// maps to catch regressions.
 //
-//	ivrvg serve  [-addr :8099] [-logdir data/calls] [-audiosocket :8090] [-ami host:5038]
-//	ivrvg dial   -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] <number>
-//	ivrvg replay <call.jsonl>
-//	ivrvg sample [-out testdata/calls/example.jsonl]
+//	ivrvg serve   [-addr :8099] [-logdir data/calls] [-audiosocket :8090] [-ami host:5038]
+//	ivrvg dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] <number>
+//	ivrvg map     -ami host:5038 -channel 'PJSIP/{number}@trunk' -scenario scenarios.json [-audiosocket :8090] [-out map.json] [-logdir data/outbound]
+//	ivrvg diff    <before.json> <after.json>
+//	ivrvg replay  <call.jsonl>
+//	ivrvg sample  [-out testdata/calls/example.jsonl]
 //	ivrvg version
 package main
 
@@ -12,11 +15,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,8 +30,10 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/flowmap"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/gateway"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/replay"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
 )
 
 const version = "0.2.0"
@@ -48,6 +56,10 @@ func main() {
 		err = cmdServe(os.Args[2:])
 	case "dial":
 		err = cmdDial(os.Args[2:])
+	case "map":
+		err = cmdMap(os.Args[2:])
+	case "diff":
+		err = cmdDiff(os.Args[2:])
 	case "replay":
 		err = cmdReplay(os.Args[2:])
 	case "sample":
@@ -72,6 +84,9 @@ func usage() {
   serve   [-addr :8099] [-logdir data/calls]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
   dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] [-callerid ...] <number>
+  map     -ami host:5038 -channel 'PJSIP/{number}@trunk' -scenario file.json
+          [-audiosocket :8090] [-out map.json] [-logdir data/outbound]
+  diff    <before.json> <after.json>
   replay  <call.jsonl>
   sample  [-out testdata/calls/example.jsonl]
   version
@@ -291,6 +306,156 @@ func cmdDial(args []string) error {
 		return fmt.Errorf("dial: originate call %s: %w", callID, err)
 	}
 	fmt.Printf("origination accepted (call %s)\n", callID)
+	return nil
+}
+
+func cmdMap(args []string) error {
+	fs := flag.NewFlagSet("map", flag.ExitOnError)
+	amiAddr := fs.String("ami", "", "Asterisk manager address host:port")
+	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
+	channelTemplate := fs.String("channel", "", "Asterisk channel template with one {number}")
+	asAddr := fs.String("audiosocket", ":8090", "listen address for AudioSocket")
+	outContext := fs.String("out-context", outboundContext, "dialplan context for outbound calls")
+	callerID := fs.String("callerid", "ivrvg", "caller id to present")
+	scenarioFile := fs.String("scenario", "", "scenario file (JSON)")
+	outFile := fs.String("out", "map.json", "output flow map file")
+	logdir := fs.String("logdir", "data/outbound", "directory for per-call event logs")
+	acceptTimeout := fs.Duration("accept-timeout", 30*time.Second, "how long to wait for each call to connect")
+	_ = fs.Parse(args)
+
+	if *scenarioFile == "" {
+		return fmt.Errorf("map: -scenario is required")
+	}
+	if *amiAddr == "" {
+		return fmt.Errorf("map: -ami is required")
+	}
+	if *channelTemplate == "" {
+		return fmt.Errorf("map: -channel is required")
+	}
+
+	scenarios, err := scenario.Load(*scenarioFile)
+	if err != nil {
+		return err
+	}
+	log.Printf("ivrvg map: loaded %d scenario(s) from %s", len(scenarios), *scenarioFile)
+
+	ami, err := dialManager(*amiAddr, *amiUser, "default")
+	if err != nil {
+		return err
+	}
+	defer ami.Close()
+
+	var allLogs [][]eventlog.Event
+
+	for i, sc := range scenarios {
+		target := sc.Target
+		if target == "" {
+			return fmt.Errorf("map: scenario %q has no target number", sc.Name)
+		}
+
+		channel, err := outboundChannel(*channelTemplate, target)
+		if err != nil {
+			return err
+		}
+
+		callID, err := newCallID()
+		if err != nil {
+			return fmt.Errorf("map: generate call id: %w", err)
+		}
+
+		ln, err := net.Listen("tcp", *asAddr)
+		if err != nil {
+			return fmt.Errorf("map: listen %s: %w", *asAddr, err)
+		}
+
+		log.Printf("ivrvg map: [%d/%d] %s — originating %s (call %s)", i+1, len(scenarios), sc.Name, target, callID)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		if err := ami.Originate(ctx, control.Originate{
+			Channel:   channel,
+			Context:   *outContext,
+			Exten:     "s",
+			Priority:  1,
+			CallerID:  *callerID,
+			Timeout:   30000,
+			Async:     true,
+			Variables: map[string]string{"IVRVG_UUID": callID},
+		}); err != nil {
+			cancel()
+			ln.Close()
+			return fmt.Errorf("map: originate %s: %w", sc.Name, err)
+		}
+
+		conn, err := gateway.AcceptOutbound(ln, *acceptTimeout)
+		if err != nil {
+			cancel()
+			ln.Close()
+			return fmt.Errorf("map: %s: call did not connect: %w", sc.Name, err)
+		}
+
+		opts := gateway.AudioSocketOptions{
+			LogDir:   *logdir,
+			Control:  ami,
+			Channels: ami,
+		}
+		uuid, runErr := gateway.RunOutboundScenario(ctx, conn, opts, sc)
+		conn.Close()
+		ln.Close()
+		cancel()
+
+		if runErr != nil {
+			log.Printf("ivrvg map: %s: %v", sc.Name, runErr)
+		}
+
+		logPath := filepath.Join(*logdir, uuid+".jsonl")
+		events, err := eventlog.Read(logPath)
+		if err != nil {
+			log.Printf("ivrvg map: %s: could not read log %s: %v", sc.Name, logPath, err)
+			continue
+		}
+		allLogs = append(allLogs, events)
+		log.Printf("ivrvg map: %s complete (%d events)", sc.Name, len(events))
+	}
+
+	if len(allLogs) == 0 {
+		return fmt.Errorf("map: no scenario runs produced event logs")
+	}
+
+	target := scenarios[0].Target
+	m := flowmap.Build(target, allLogs)
+	if err := flowmap.Save(*outFile, m); err != nil {
+		return fmt.Errorf("map: save: %w", err)
+	}
+	fmt.Printf("flow map: %d nodes, %d edges -> %s\n", len(m.Nodes), len(m.Edges), *outFile)
+	return nil
+}
+
+func cmdDiff(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("diff: two map files are required: ivrvg diff <before.json> <after.json>")
+	}
+	before, err := flowmap.Load(args[0])
+	if err != nil {
+		return err
+	}
+	after, err := flowmap.Load(args[1])
+	if err != nil {
+		return err
+	}
+
+	changes := flowmap.Diff(before, after)
+	if len(changes) == 0 {
+		fmt.Println("no changes")
+		return nil
+	}
+
+	data, err := json.MarshalIndent(changes, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	fmt.Printf("\n%d change(s)\n", len(changes))
+	os.Exit(1)
 	return nil
 }
 

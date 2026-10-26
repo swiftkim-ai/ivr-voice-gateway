@@ -1,0 +1,22 @@
+[
+  {
+    "name": "sales-path",
+    "target": "+15551234567",
+    "steps": [
+      {"label": "greeting", "wait": "3s", "press": "1"},
+      {"label": "sales_menu", "wait": "2s", "press": "2"},
+      {"label": "new_orders", "wait": "5s"}
+    ],
+    "final_wait": "3s"
+  },
+  {
+    "name": "support-path",
+    "target": "+15551234567",
+    "steps": [
+      {"label": "greeting", "wait": "3s", "press": "2"},
+      {"label": "support_menu", "wait": "2s", "press": "1"},
+      {"label": "open_ticket", "wait": "5s"}
+    ],
+    "final_wait": "3s"
+  }
+]

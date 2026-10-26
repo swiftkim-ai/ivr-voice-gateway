@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 
+/ivrvg
 node_modules/
 dist/
 *.log
