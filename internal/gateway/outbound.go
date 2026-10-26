@@ -12,6 +12,7 @@ import (
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/media"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
 )
 
@@ -81,6 +82,7 @@ func RunOutboundScenario(ctx context.Context, conn net.Conn, opts AudioSocketOpt
 		if step.Press != "" {
 			for _, d := range step.Press {
 				digit := string(d)
+				sendInBandDTMF(out, byte(d))
 				if opts.Control != nil && info.Channel != "" {
 					if err := opts.Control.Do(ctx, info.Channel, control.Action{
 						Kind: control.SendDTMF,
@@ -190,6 +192,12 @@ func endReason(err error) string {
 func endLog(logw *eventlog.Writer, reason string) {
 	if logw != nil {
 		logw.Append("call_ended", map[string]any{"reason": reason})
+	}
+}
+
+func sendInBandDTMF(out chan<- []byte, digit byte) {
+	for _, frame := range media.DTMFTone(digit) {
+		out <- frame
 	}
 }
 

@@ -31,6 +31,10 @@ produce deterministic, diffable flow maps.
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-26 In-band DTMF tone generation (`internal/media/dtmf.go`): generates 8 kHz PCM16 dual-
+  tone frames for all 16 DTMF digits (100ms tone + 100ms gap). Wired into the outbound scenario
+  handler — tones are injected into the AudioSocket stream so remote IVRs hear actual audio.
+  Goertzel-based frequency test confirms correct tone pairs.
 - 2026-10-26 Outbound integration test (`make outbound-test`): stub IVR in the Docker dialplan,
   two scenarios mapping both paths, flow map verification, `ivrvg diff` regression detection.
   AMI manager permissions updated to include `originate` write.
@@ -58,8 +62,9 @@ produce deterministic, diffable flow maps.
 
 ## Next (ordered)
 1. Run `make outbound-test` with Docker to verify the outbound integration test passes end-to-end.
-2. Verify that `PlayDTMF` via AMI reaches the remote party through AudioSocket. If it does not,
-   fall back to generating DTMF audio tones inline.
+2. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk (the Goertzel test
+   confirms the frequencies; the question is whether the remote switch's DTMF detector picks them
+   up through the codec path).
 3. Add a CI job that runs both integration tests on push.
 4. Consider generating the Go and TS types from the schema (ADR-0005).
 
@@ -84,9 +89,9 @@ produce deterministic, diffable flow maps.
   against a real switch.
 
 ## Known issues / deferred
-- `PlayDTMF` does not cross the Local channel bridge when AudioSocket consumes the originating
-  channel. The outbound integration test works around this with a stub IVR that times out to a
-  default path. Generating in-band DTMF tones via the audio stream is the planned fallback.
+- In-band DTMF tones are generated and sent over AudioSocket; AMI `PlayDTMF` is kept as a
+  secondary best-effort mechanism. Whether the remote IVR decodes them depends on its tone
+  detector — needs verification against a real IVR with a SIP trunk.
 - AudioSocket frames are not schema-checked (binary transport, not JSON).
 - No auth beyond a `token` query param placeholder.
 - Hand-written Go/TS types are not generated from the schema (ADR-0005).
