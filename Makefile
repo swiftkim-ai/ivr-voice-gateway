@@ -1,8 +1,8 @@
 .PHONY: all build run run-asterisk replay sample test test-go test-ts typecheck \
-        check fmt fmt-check vet schema-check integration-test outbound-test escalation-test diff
+        check fmt fmt-check vet schema-check integration-test outbound-test escalation-test eval diff
 
 # What CI runs. Use this before pushing.
-check: fmt-check vet build test-go typecheck test-ts schema-check
+check: fmt-check vet build test-go typecheck test-ts schema-check eval
 
 all: check
 
@@ -62,6 +62,10 @@ outbound-test:
 # console receives the event, Asterisk redirects the channel. Needs Docker.
 escalation-test:
 	./deploy/asterisk/docker/run-escalation-test.sh
+
+# Eval: run the scenario bank against recorded fixtures. No network needed.
+eval:
+	go run ./cmd/ivrvg eval -bank testdata/scenarios/eval-bank.json -fixtures testdata/fixtures
 
 # Compare two flow maps; exit 1 if they differ. Pass BEFORE= and AFTER=.
 BEFORE ?= before.json

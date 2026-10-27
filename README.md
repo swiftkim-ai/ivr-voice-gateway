@@ -103,9 +103,16 @@ The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
 - **Proof:** an AI host qualifies a caller, then escalates with a handoff packet; the console
   screen-pops the packet and the live transcript, and the channel moves to the human's extension.
 
-### Phase 4 — Real providers + eval CI
-- STT / LLM / TTS behind the existing interfaces; recorded fixtures for tests.
-- A scenario bank that runs in CI; production failures promoted to scenarios.
+### Phase 4 — Real providers + eval CI (in progress)
+- STT (`stt.Transcriber`), LLM (`llm.Completer`), and TTS (`tts.Synthesizer`) behind provider
+  interfaces. The LLM brain (`llm.Brain`) wires them behind the existing `brain.Brain` the call
+  engine uses, so the engine never imports a provider directly.
+- Recorded fixtures for every provider: `llm.Recording` captures exchanges during a live call;
+  `llm.Recorded` replays them deterministically. Same pattern for STT and TTS.
+- `ivrvg eval -bank <scenarios.json>` runs a scenario bank against recorded fixtures and reports
+  pass/fail per scenario. The bank runs in CI on every push.
+- A concrete provider (Claude, Whisper, ElevenLabs) ships when credentials and a sample call are
+  available. The interfaces, fixtures, and eval loop are ready now.
 - **Proof:** a prompt or model change runs the scenario bank and reports pass/fail per scenario.
 
 ---
@@ -161,6 +168,9 @@ IVRVG_AMI_SECRET=... go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 1
 # Replay a recorded call deterministically
 go run ./cmd/ivrvg replay testdata/calls/example.jsonl
 
+# Run the eval scenario bank against recorded fixtures
+go run ./cmd/ivrvg eval -bank testdata/scenarios/eval-bank.json -fixtures testdata/fixtures
+
 # Go tests
 go test ./...
 
@@ -171,12 +181,16 @@ cd sdk/ts && npm install && npm test
 ## Repository layout
 
 ```
-cmd/ivrvg/          CLI: serve · dial · map · diff · replay · sample
+cmd/ivrvg/          CLI: serve · dial · map · diff · eval · replay · sample
 cmd/console-tap/    test helper: connects to /v1/console and dumps events
 internal/call/      call engine + turn loop
 internal/eventlog/  append-only JSONL event log
 internal/media/     PCM16, 20 ms frames, G.711 mulaw
 internal/brain/     brain interface + scripted brain + tool registry
+internal/stt/       speech-to-text interface + recorded fixture
+internal/llm/       language-model interface, LLM brain, fixtures, recording
+internal/tts/       text-to-speech interface, speaker adapter, resampler
+internal/eval/      scenario bank runner: fixtures in, pass/fail out
 internal/gateway/   wsmedia + audiosocket adapters + outbound scenario handler
 internal/control/   control actions, the Controller seam, AMI client
 internal/replay/    deterministic replay

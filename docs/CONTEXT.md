@@ -2,8 +2,8 @@
 _Last updated: 2026-10-27_
 
 ## Current goal
-Phase 3 — warm transfer + console. Complete: escalate action, handoff packet, console hub, web UI,
-integration test. Whisper leg deferred to Phase 4.
+Phase 4 — real providers + eval CI. Provider interfaces, LLM brain, fixtures, and the eval command
+are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when credentials are available.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -30,11 +30,21 @@ integration test. Whisper leg deferred to Phase 4.
 | Console hub + web UI | ✅ done | `internal/console`, `/v1/console`, `/v1/console/ui` |
 | Console screen-pop on escalation | ✅ done | Handoff panel in the web UI |
 | Escalation integration test | ✅ done | `make escalation-test` — Docker, real Asterisk, console tap |
-| Whisper leg (audio to human) | ⬜ deferred | Needs TTS (Phase 4); text handoff via console for now |
-| STT-driven traversal | ⬜ not started | Phase 4; scenarios use timed waits for now |
-| Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
+| Whisper leg (audio to human) | ⬜ deferred | Needs TTS provider; text handoff via console for now |
+| Provider interfaces (STT/LLM/TTS) | ✅ done | `internal/stt`, `internal/llm`, `internal/tts` |
+| LLM brain | ✅ done | `llm.Brain` behind existing `brain.Brain` interface |
+| Recorded fixtures + recording | ✅ done | `llm.Recording` captures; `llm.Recorded` replays |
+| Eval command + scenario bank | ✅ done | `ivrvg eval`, 3 sample scenarios, runs in CI |
+| STT-driven traversal | ⬜ not started | needs real STT; scenarios use timed waits for now |
+| Concrete providers (Claude, Whisper, etc.) | ⬜ not started | interfaces ready, needs credentials |
 
 ## Done (most recent first)
+- 2026-10-27 Phase 4 core: provider interfaces (`stt.Transcriber`, `llm.Completer`,
+  `tts.Synthesizer`), LLM brain (`llm.Brain`) behind the existing `brain.Brain` interface,
+  recorded fixture infrastructure (`llm.Recording` captures, `llm.Recorded` replays), TTS
+  speaker with resampler. `ivrvg eval` command runs a scenario bank against fixtures and reports
+  pass/fail. Three sample scenarios (greeting-transfer, billing-escalation, polite-hangup) with
+  fixtures. Eval runs in `make check` and CI. Version bumped to 0.4.0.
 - 2026-10-27 Escalation integration test (`make escalation-test`): Docker + real Asterisk. Caller
   presses 3, brain escalates with BILLING handoff, event log carries the escalation message with
   all handoff fields, console WebSocket receives the event, Asterisk redirects the channel to
@@ -83,11 +93,13 @@ integration test. Whisper leg deferred to Phase 4.
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Whisper leg: once TTS is available (Phase 4), play a synthesized summary to the human agent
-   before bridging. For now the text handoff via the console serves the same purpose.
-2. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
-3. Phase 4: real STT/LLM/TTS providers + eval CI.
-4. Consider generating the Go and TS types from the schema (ADR-0005).
+1. Concrete STT provider (Whisper or Deepgram) behind `stt.Transcriber`.
+2. Concrete LLM provider (Claude via Anthropic SDK) behind `llm.Completer`.
+3. Concrete TTS provider (ElevenLabs or Google) behind `tts.Synthesizer`.
+4. Whisper leg: play a synthesized summary to the human agent before bridging.
+5. STT-driven outbound traversal: recognise prompts rather than following timed waits.
+6. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
+7. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.
