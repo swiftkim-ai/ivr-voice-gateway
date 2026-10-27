@@ -79,6 +79,9 @@ type def struct {
 	Required             []string        `json:"required"`
 	Properties           map[string]*def `json:"properties"`
 	AdditionalProperties *bool           `json:"additionalProperties"`
+	Items                *def            `json:"items"`
+	Description          string          `json:"description"`
+	Default              any             `json:"default"`
 }
 
 type contractSchema struct {
@@ -202,6 +205,10 @@ func (s *contractSchema) value(d *def, v any) error {
 	case "object":
 		if _, ok := v.(map[string]any); !ok {
 			return fmt.Errorf("must be an object, got %T", v)
+		}
+	case "array":
+		if _, ok := v.([]any); !ok {
+			return fmt.Errorf("must be an array, got %T", v)
 		}
 	case "":
 		// No type constraint, e.g. a node carrying only a const or enum.

@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/Dtmf" },
     { "$ref": "#/$defs/Digits" },
     { "$ref": "#/$defs/Action" },
+    { "$ref": "#/$defs/Escalation" },
     { "$ref": "#/$defs/Stop" },
     { "$ref": "#/$defs/Ended" },
     { "$ref": "#/$defs/Error" }
@@ -113,8 +114,33 @@
         "type": { "const": "action" },
         "seq": { "$ref": "#/$defs/seq" },
         "at": { "$ref": "#/$defs/at" },
-        "kind": { "enum": ["send_dtmf", "route", "transfer", "play_prompt", "park", "hangup", "read_digits"] },
+        "kind": { "enum": ["send_dtmf", "route", "transfer", "play_prompt", "park", "hangup", "read_digits", "escalate"] },
         "args": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+
+    "Escalation": {
+      "type": "object",
+      "description": "server -> client. The agent is handing the call to a human. The handoff packet carries everything the human needs to continue the conversation.",
+      "required": ["type", "seq", "at", "handoff"],
+      "properties": {
+        "type": { "const": "escalation" },
+        "seq": { "$ref": "#/$defs/seq" },
+        "at": { "$ref": "#/$defs/at" },
+        "handoff": {
+          "type": "object",
+          "properties": {
+            "identity": { "type": "string", "description": "Who the caller is (name, account, phone number)." },
+            "intent": { "type": "string", "description": "Why they called, in the agent's words." },
+            "entities": { "type": "object", "description": "Named values extracted during the call (account_number, order_id, etc.). Values are strings." },
+            "actions_taken": { "type": "array", "items": { "type": "string" }, "description": "What the agent already did or offered." },
+            "sentiment": { "type": "string", "description": "Caller's emotional state (calm, frustrated, angry, etc.)." },
+            "escalation_code": { "type": "string", "description": "Machine-readable reason for escalation." },
+            "summary": { "type": "string", "description": "Brief natural-language summary for the human agent." }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

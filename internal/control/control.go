@@ -15,11 +15,25 @@ const (
 	Park       = "park"        // park the call for pickup
 	Hangup     = "hangup"      // end the call
 	ReadDigits = "read_digits" // collect keypad digits (for sensitive input)
+	Escalate   = "escalate"    // hand the call to a human with a structured packet
 )
 
 var kinds = map[string]bool{
 	SendDTMF: true, Route: true, Transfer: true, PlayPrompt: true,
-	Park: true, Hangup: true, ReadDigits: true,
+	Park: true, Hangup: true, ReadDigits: true, Escalate: true,
+}
+
+// Handoff is the structured packet the brain produces when escalating a call
+// to a human agent. It carries everything the human needs to continue without
+// asking the caller to repeat themselves.
+type Handoff struct {
+	Identity       string            `json:"identity,omitempty"`
+	Intent         string            `json:"intent,omitempty"`
+	Entities       map[string]string `json:"entities,omitempty"`
+	ActionsTaken   []string          `json:"actions_taken,omitempty"`
+	Sentiment      string            `json:"sentiment,omitempty"`
+	EscalationCode string            `json:"escalation_code,omitempty"`
+	Summary        string            `json:"summary,omitempty"`
 }
 
 // Action is one instruction for the call, with adapter-specific arguments.

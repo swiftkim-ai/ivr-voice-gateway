@@ -162,6 +162,23 @@ func (a *AMI) Do(ctx context.Context, channel string, act Action) error {
 	case Hangup:
 		return a.do(ctx, []field{{"Action", "Hangup"}, {"Channel", channel}})
 
+	case Escalate:
+		// Escalate is an attended transfer: redirect the channel to the human
+		// agent's extension. The handoff packet travels over the console
+		// WebSocket, not AMI.
+		exten := arg(act.Args, "dest", "exten")
+		if exten == "" {
+			return nil // no switch-side action; the handoff is on the console
+		}
+		dialplanCtx := arg(act.Args, "context")
+		if dialplanCtx == "" {
+			dialplanCtx = a.cfg.Context
+		}
+		return a.do(ctx, []field{
+			{"Action", "Redirect"}, {"Channel", channel},
+			{"Exten", exten}, {"Context", dialplanCtx}, {"Priority", "1"},
+		})
+
 	case ReadDigits:
 		// Digits arrive over AudioSocket and the engine collects them; there is
 		// nothing for the switch to do.

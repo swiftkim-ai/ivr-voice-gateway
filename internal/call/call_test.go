@@ -72,6 +72,77 @@ func TestGreetingAndTurn(t *testing.T) {
 	}
 }
 
+func TestEscalateProducesHandoffMessage(t *testing.T) {
+	escalateBrain := &brain.Scripted{Rules: []brain.Rule{
+		{Match: "3", Say: []string{"Connecting you to a specialist."},
+			Actions: []control.Action{{Kind: control.Escalate, Args: map[string]any{
+				"dest":            "300",
+				"identity":        "+254722123456",
+				"intent":          "billing inquiry",
+				"sentiment":       "frustrated",
+				"escalation_code": "BILLING",
+				"summary":         "Caller wants help with billing.",
+				"entities":        map[string]any{"account": "48217"},
+				"actions_taken":   []any{"Greeted caller"},
+			}}}},
+		{Match: "*", Say: []string{"Press 3 for billing."}},
+	}}
+
+	ctx := context.Background()
+	sink := &call.MemorySink{}
+	c := &call.Call{ID: "c-esc", Brain: escalateBrain, Speaker: brain.Silence{}, Sink: sink}
+	_ = c.Start()
+	_ = c.Respond(ctx)
+	if err := c.Digit(ctx, "3", false); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.End("hangup")
+
+	var types []string
+	for _, m := range sink.Messages() {
+		types = append(types, m.Type)
+	}
+
+	// The escalate action emits: action (escalate) + escalation + reply + call_ended
+	hasAction := false
+	hasEscalation := false
+	for _, m := range sink.Messages() {
+		if m.Type == "action" && m.Kind == control.Escalate {
+			hasAction = true
+		}
+		if m.Type == "escalation" {
+			hasEscalation = true
+			if m.Handoff == nil {
+				t.Fatal("escalation message has nil handoff")
+			}
+			if m.Handoff.Identity != "+254722123456" {
+				t.Errorf("identity = %q, want +254722123456", m.Handoff.Identity)
+			}
+			if m.Handoff.Intent != "billing inquiry" {
+				t.Errorf("intent = %q, want billing inquiry", m.Handoff.Intent)
+			}
+			if m.Handoff.Sentiment != "frustrated" {
+				t.Errorf("sentiment = %q, want frustrated", m.Handoff.Sentiment)
+			}
+			if m.Handoff.EscalationCode != "BILLING" {
+				t.Errorf("escalation_code = %q, want BILLING", m.Handoff.EscalationCode)
+			}
+			if m.Handoff.Entities["account"] != "48217" {
+				t.Errorf("entities[account] = %q, want 48217", m.Handoff.Entities["account"])
+			}
+			if len(m.Handoff.ActionsTaken) != 1 || m.Handoff.ActionsTaken[0] != "Greeted caller" {
+				t.Errorf("actions_taken = %v, want [Greeted caller]", m.Handoff.ActionsTaken)
+			}
+		}
+	}
+	if !hasAction {
+		t.Error("expected an escalate action message")
+	}
+	if !hasEscalation {
+		t.Error("expected an escalation message with handoff")
+	}
+}
+
 func TestSensitiveDigitIsRedactedAndNotAnswered(t *testing.T) {
 	ctx := context.Background()
 	sink := &call.MemorySink{}

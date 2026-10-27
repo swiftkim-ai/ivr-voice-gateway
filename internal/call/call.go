@@ -125,15 +125,63 @@ func (c *Call) Respond(ctx context.Context) error {
 	return nil
 }
 
-// act records and emits a control action. read_digits also arms the engine's
-// digit collection: the switch has nothing to do for it (ADR-0007), the digits
-// arrive on the media adapter.
+// act records and emits a control action. read_digits arms digit collection;
+// escalate emits a dedicated escalation message with the handoff packet.
 func (c *Call) act(a control.Action) error {
 	c.append("action", map[string]any{"kind": a.Kind, "args": a.Args})
 	if a.Kind == control.ReadDigits {
 		c.arm(a.Args)
 	}
+	if a.Kind == control.Escalate {
+		return c.escalate(a)
+	}
 	return c.emit(wire.Message{Type: "action", Kind: a.Kind, Args: a.Args})
+}
+
+// escalate emits both the action event (for the log) and a dedicated
+// escalation message carrying the handoff packet.
+func (c *Call) escalate(a control.Action) error {
+	if err := c.emit(wire.Message{Type: "action", Kind: a.Kind, Args: a.Args}); err != nil {
+		return err
+	}
+	h := buildHandoff(a.Args)
+	c.append("escalation", map[string]any{"handoff": h})
+	return c.emit(wire.Message{Type: "escalation", Handoff: &h})
+}
+
+func buildHandoff(args map[string]any) control.Handoff {
+	h := control.Handoff{}
+	if v, ok := args["identity"].(string); ok {
+		h.Identity = v
+	}
+	if v, ok := args["intent"].(string); ok {
+		h.Intent = v
+	}
+	if v, ok := args["sentiment"].(string); ok {
+		h.Sentiment = v
+	}
+	if v, ok := args["escalation_code"].(string); ok {
+		h.EscalationCode = v
+	}
+	if v, ok := args["summary"].(string); ok {
+		h.Summary = v
+	}
+	if v, ok := args["entities"].(map[string]any); ok {
+		h.Entities = make(map[string]string, len(v))
+		for k, val := range v {
+			if s, ok := val.(string); ok {
+				h.Entities[k] = s
+			}
+		}
+	}
+	if v, ok := args["actions_taken"].([]any); ok {
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				h.ActionsTaken = append(h.ActionsTaken, s)
+			}
+		}
+	}
+	return h
 }
 
 // say records the reply, emits it, then streams its audio frames.

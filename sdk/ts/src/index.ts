@@ -8,6 +8,8 @@ export type {
   Dtmf,
   Digits,
   Action,
+  Handoff,
+  Escalation,
   Stop,
   Ended,
   Error,

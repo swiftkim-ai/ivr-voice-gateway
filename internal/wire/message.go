@@ -4,7 +4,11 @@
 // The field set mirrors schema/ivrvg.v1.schema.json; keep the two in step.
 package wire
 
-import "time"
+import (
+	"time"
+
+	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
+)
 
 // Message is one JSON text frame in either direction. Fields are optional by
 // type, exactly as the schema's oneOf describes; omitempty keeps the wire thin.
@@ -35,6 +39,9 @@ type Message struct {
 	// action
 	Kind string         `json:"kind,omitempty"`
 	Args map[string]any `json:"args,omitempty"`
+
+	// escalation
+	Handoff *control.Handoff `json:"handoff,omitempty"`
 
 	// call_ended / error
 	Reason     string `json:"reason,omitempty"`

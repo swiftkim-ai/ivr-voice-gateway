@@ -5,7 +5,8 @@ export type ActionKind =
   | "play_prompt"
   | "park"
   | "hangup"
-  | "read_digits";
+  | "read_digits"
+  | "escalate";
 
 export type WireMessage =
   | Start
@@ -15,6 +16,7 @@ export type WireMessage =
   | Dtmf
   | Digits
   | Action
+  | Escalation
   | Stop
   | Ended
   | Error;
@@ -82,6 +84,22 @@ export interface Action extends BaseMessage {
   type: "action";
   kind: ActionKind;
   args?: Record<string, unknown>;
+}
+
+/** The handoff packet the agent produces when escalating to a human. */
+export interface Handoff {
+  identity?: string;
+  intent?: string;
+  entities?: Record<string, string>;
+  actions_taken?: string[];
+  sentiment?: string;
+  escalation_code?: string;
+  summary?: string;
+}
+
+export interface Escalation extends BaseMessage {
+  type: "escalation";
+  handoff: Handoff;
 }
 
 export interface Stop {
