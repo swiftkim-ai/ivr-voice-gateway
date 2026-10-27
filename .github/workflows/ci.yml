@@ -83,3 +83,5 @@ jobs:
         run: ./deploy/asterisk/docker/run-integration-test.sh
       - name: outbound integration test
         run: ./deploy/asterisk/docker/run-outbound-test.sh
+      - name: escalation integration test
+        run: ./deploy/asterisk/docker/run-escalation-test.sh
