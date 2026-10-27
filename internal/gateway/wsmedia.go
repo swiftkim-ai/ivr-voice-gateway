@@ -15,6 +15,7 @@ import (
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/brain"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/console"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/wire"
 )
@@ -28,9 +29,12 @@ type Options struct {
 	Speaker brain.Speaker
 	// Redactor keys the token standing in for a sensitive digit group.
 	Redactor *call.Redactor
+	// Console receives live call events for the operator screen-pop.
+	Console *console.Hub
 }
 
-// Handler returns the HTTP routes: the media WebSocket and a health check.
+// Handler returns the HTTP routes: the media WebSocket, the console, and a
+// health check.
 func Handler(opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -40,6 +44,10 @@ func Handler(opts Options) http.Handler {
 	mux.HandleFunc("/v1/media", func(w http.ResponseWriter, r *http.Request) {
 		serveCall(opts, w, r)
 	})
+	if opts.Console != nil {
+		mux.HandleFunc("/v1/console", console.Handler(opts.Console))
+		mux.HandleFunc("/v1/console/ui", consoleUIHandler)
+	}
 	return mux
 }
 
@@ -97,7 +105,8 @@ func serveCall(opts Options, w http.ResponseWriter, r *http.Request) {
 	c := &call.Call{
 		ID: callID, Hint: hint,
 		Brain: opts.Brain, Speaker: opts.Speaker,
-		Sink: wsSink{conn: conn}, Log: logw, Redactor: opts.Redactor,
+		Sink: wsSink{conn: conn, callID: callID, hub: opts.Console},
+		Log:  logw, Redactor: opts.Redactor,
 	}
 
 	if err := c.Start(); err != nil {
@@ -145,11 +154,27 @@ func serveCall(opts Options, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// wsSink writes contract messages and audio frames to the socket.
-type wsSink struct{ conn *websocket.Conn }
+// wsSink writes contract messages and audio frames to the socket, and
+// broadcasts events to the console hub when one is attached.
+type wsSink struct {
+	conn   *websocket.Conn
+	callID string
+	hub    *console.Hub
+}
 
-func (s wsSink) Message(m wire.Message) error { return s.conn.WriteJSON(m) }
+func (s wsSink) Message(m wire.Message) error {
+	if s.hub != nil {
+		s.hub.Broadcast(s.callID, m)
+	}
+	return s.conn.WriteJSON(m)
+}
 
 func (s wsSink) Audio(pcm []byte) error {
 	return s.conn.WriteMessage(websocket.BinaryMessage, pcm)
+}
+
+// consoleUIHandler serves the operator console web page.
+func consoleUIHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(consoleHTML))
 }

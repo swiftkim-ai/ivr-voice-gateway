@@ -28,6 +28,7 @@ import (
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/brain"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/console"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/flowmap"
@@ -114,6 +115,8 @@ func cmdServe(args []string) error {
 		log.Printf("ivrvg: %s is unset; using a random key for this run, so digit tokens will not correlate across restarts", saltEnv)
 	}
 
+	hub := console.NewHub()
+
 	var (
 		ctl      control.Controller
 		channels gateway.ChannelLookup
@@ -135,16 +138,18 @@ func cmdServe(args []string) error {
 		opts := gateway.AudioSocketOptions{
 			LogDir: *logdir, Brain: demoBrain(), Speaker: brain.Silence{},
 			Control: ctl, Channels: channels, Redactor: redactor,
+			Console: hub,
 		}
 		go func() { errs <- gateway.ListenAndServeAudioSocket(*asAddr, opts) }()
 		log.Printf("ivrvg: audiosocket on %s (PCM16 8k, 20 ms frames)", *asAddr)
 	}
 
 	h := gateway.Handler(gateway.Options{
-		LogDir: *logdir, Brain: demoBrain(), Speaker: brain.Silence{}, Redactor: redactor,
+		LogDir: *logdir, Brain: demoBrain(), Speaker: brain.Silence{},
+		Redactor: redactor, Console: hub,
 	})
 	go func() { errs <- http.ListenAndServe(*addr, h) }()
-	log.Printf("ivrvg %s listening on %s (ws /v1/media, logs -> %s)", version, *addr, *logdir)
+	log.Printf("ivrvg %s listening on %s (ws /v1/media, console /v1/console/ui, logs -> %s)", version, *addr, *logdir)
 
 	return <-errs
 }
@@ -254,9 +259,19 @@ func demoBrain() brain.Brain {
 			Actions: []control.Action{{Kind: control.ReadDigits, Args: map[string]any{
 				"label": "account", "terminator": "#",
 			}}}},
+		{Match: "3", Say: []string{"Let me connect you with a billing specialist."},
+			Actions: []control.Action{{Kind: control.Escalate, Args: map[string]any{
+				"dest":            "300",
+				"identity":        "caller",
+				"intent":          "billing inquiry",
+				"sentiment":       "calm",
+				"escalation_code": "BILLING",
+				"summary":         "Caller pressed 3 for billing. Transferring to a specialist.",
+				"actions_taken":   []any{"Greeted caller", "Offered menu options"},
+			}}}},
 		{Match: "0", Say: []string{"I will put you through to an operator."},
 			Actions: []control.Action{{Kind: control.Transfer, Args: map[string]any{"dest": "100"}}}},
-		{Match: "*", Say: []string{"Hello, you have reached the gateway. Press 1 for sales, 2 to book, or 0 for an operator."}},
+		{Match: "*", Say: []string{"Hello, you have reached the gateway. Press 1 for sales, 2 to book, 3 for billing, or 0 for an operator."}},
 	}}
 }
 

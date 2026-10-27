@@ -14,6 +14,7 @@ import (
 
 	"github.com/swiftkimani/ivr-voice-gateway/internal/brain"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/console"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/media"
@@ -60,6 +61,8 @@ type AudioSocketOptions struct {
 	Channels ChannelLookup
 	// Redactor keys the token standing in for a sensitive digit group.
 	Redactor *call.Redactor
+	// Console receives live call events for the operator screen-pop.
+	Console *console.Hub
 
 	// FramePace is the gap between outbound audio frames, and so the rate the
 	// stream runs at. It defaults to the frame duration, which is real time;
@@ -139,6 +142,7 @@ func serveAudioSocketCall(ctx context.Context, conn net.Conn, opts AudioSocketOp
 	sink := &audioSocketSink{
 		ctx: ctx, conn: conn, log: logw,
 		ctl: opts.Control, channel: info.Channel,
+		hub: opts.Console, callID: uuid,
 		out: make(chan []byte, outboundFrames),
 	}
 	// The stream has to start before anything is said: Asterisk is already
@@ -254,13 +258,17 @@ type audioSocketSink struct {
 	log     *eventlog.Writer
 	ctl     control.Controller
 	channel string
+	hub     *console.Hub
+	callID  string
 
 	out chan []byte
 }
 
-// Message forwards actions to the switch. Other message types are already in
-// the event log, and AudioSocket has nowhere to put them.
+// Message forwards actions to the switch and broadcasts to the console.
 func (s *audioSocketSink) Message(m wire.Message) error {
+	if s.hub != nil {
+		s.hub.Broadcast(s.callID, m)
+	}
 	if m.Type != "action" || s.ctl == nil {
 		return nil
 	}
