@@ -8,11 +8,12 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 3 (warm transfer + console) in progress** — the `escalate` action and
-> structured handoff packet are delivered. A live operator console at `/v1/console/ui` streams
-> call events and screen-pops the handoff when the agent escalates. The channel redirects to
-> the human agent's extension via AMI. The audio whisper leg is deferred to Phase 4 (needs TTS);
-> the text-based handoff via the console serves the same purpose for now.
+> Status: **Phase 3 (warm transfer + console) complete** — the `escalate` action, structured
+> handoff packet, operator console, and integration test are delivered. `make escalation-test`
+> proves the full path: caller presses 3 → agent escalates with a BILLING handoff → event log
+> and console WebSocket carry the packet → Asterisk redirects the channel to the human's
+> extension. The audio whisper leg is deferred to Phase 4 (needs TTS); the text-based handoff
+> via the console serves the same purpose for now.
 > See [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
@@ -91,7 +92,7 @@ The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
   Phase 4.
 - **Proof:** map a sample IVR automatically and catch a seeded regression.
 
-### Phase 3 — Warm transfer + console (in progress)
+### Phase 3 — Warm transfer + console ✅
 - `escalate` action and structured `Handoff` packet (identity, intent, entities, actions taken,
   sentiment, escalation code, summary). Additive v1 contract change.
 - Operator console: `/v1/console` WebSocket streams live call events; `/v1/console/ui` is a
@@ -171,6 +172,7 @@ cd sdk/ts && npm install && npm test
 
 ```
 cmd/ivrvg/          CLI: serve · dial · map · diff · replay · sample
+cmd/console-tap/    test helper: connects to /v1/console and dumps events
 internal/call/      call engine + turn loop
 internal/eventlog/  append-only JSONL event log
 internal/media/     PCM16, 20 ms frames, G.711 mulaw

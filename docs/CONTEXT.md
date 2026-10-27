@@ -2,7 +2,8 @@
 _Last updated: 2026-10-27_
 
 ## Current goal
-Phase 3 — warm transfer + console. Core delivered: escalate action, handoff packet, console hub, web UI.
+Phase 3 — warm transfer + console. Complete: escalate action, handoff packet, console hub, web UI,
+integration test. Whisper leg deferred to Phase 4.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -28,11 +29,17 @@ Phase 3 — warm transfer + console. Core delivered: escalate action, handoff pa
 | Escalate action + handoff packet | ✅ done | `control.Escalate`, `control.Handoff`, schema updated |
 | Console hub + web UI | ✅ done | `internal/console`, `/v1/console`, `/v1/console/ui` |
 | Console screen-pop on escalation | ✅ done | Handoff panel in the web UI |
+| Escalation integration test | ✅ done | `make escalation-test` — Docker, real Asterisk, console tap |
 | Whisper leg (audio to human) | ⬜ deferred | Needs TTS (Phase 4); text handoff via console for now |
 | STT-driven traversal | ⬜ not started | Phase 4; scenarios use timed waits for now |
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-27 Escalation integration test (`make escalation-test`): Docker + real Asterisk. Caller
+  presses 3, brain escalates with BILLING handoff, event log carries the escalation message with
+  all handoff fields, console WebSocket receives the event, Asterisk redirects the channel to
+  extension 300. `cmd/console-tap` connects to the console WebSocket and dumps events to a file
+  for offline assertion. CI runs all three integration tests.
 - 2026-10-27 Phase 3 core: `escalate` action kind added to the contract (additive v1 change).
   `control.Handoff` struct carries identity, intent, entities, actions taken, sentiment, escalation
   code, summary. Engine emits both the action event and a dedicated `escalation` wire message.
@@ -76,13 +83,11 @@ Phase 3 — warm transfer + console. Core delivered: escalate action, handoff pa
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Integration test: Docker test proving escalation fires, console receives the handoff, and the
-   channel redirects on the switch.
-2. Whisper leg: once TTS is available (Phase 4), play a synthesized summary to the human agent
+1. Whisper leg: once TTS is available (Phase 4), play a synthesized summary to the human agent
    before bridging. For now the text handoff via the console serves the same purpose.
-3. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
-4. Phase 4: real STT/LLM/TTS providers + eval CI.
-5. Consider generating the Go and TS types from the schema (ADR-0005).
+2. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
+3. Phase 4: real STT/LLM/TTS providers + eval CI.
+4. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.
