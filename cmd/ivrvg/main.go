@@ -37,7 +37,7 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 // Secrets come from the environment, never from flags, which are visible to
 // anyone who can list processes.
@@ -84,6 +84,7 @@ func usage() {
 
   serve   [-addr :8099] [-logdir data/calls]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
+          Console: http://<addr>/v1/console/ui
   dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] [-callerid ...] <number>
   map     -ami host:5038 -channel 'PJSIP/{number}@trunk' -scenario file.json
           [-audiosocket :8090] [-out map.json] [-logdir data/outbound]

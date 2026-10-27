@@ -2,7 +2,7 @@
 _Last updated: 2026-10-27_
 
 ## Current goal
-Phase 2 complete. Next: Phase 3 — warm transfer + console.
+Phase 3 — warm transfer + console. Core delivered: escalate action, handoff packet, console hub, web UI.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -25,11 +25,23 @@ Phase 2 complete. Next: Phase 3 — warm transfer + console.
 | Map comparison (`ivrvg diff`) | ✅ done | exit 0 = identical, exit 1 = changes (JSON diff) |
 | `ivrvg map` command | ✅ done | wired: scenarios → AMI originate → AudioSocket → event log → map |
 | Outbound integration test | ✅ done | `make outbound-test` — stub IVR, two paths, diff |
+| Escalate action + handoff packet | ✅ done | `control.Escalate`, `control.Handoff`, schema updated |
+| Console hub + web UI | ✅ done | `internal/console`, `/v1/console`, `/v1/console/ui` |
+| Console screen-pop on escalation | ✅ done | Handoff panel in the web UI |
+| Whisper leg (audio to human) | ⬜ deferred | Needs TTS (Phase 4); text handoff via console for now |
 | STT-driven traversal | ⬜ not started | Phase 4; scenarios use timed waits for now |
-| Warm transfer + console | ⬜ not started | Phase 3 |
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-27 Phase 3 core: `escalate` action kind added to the contract (additive v1 change).
+  `control.Handoff` struct carries identity, intent, entities, actions taken, sentiment, escalation
+  code, summary. Engine emits both the action event and a dedicated `escalation` wire message.
+  AMI adapter redirects the channel when a destination is given. Go/TS types and cross-language
+  fixtures updated together. Validator extended with array type support.
+- 2026-10-27 Console hub (`internal/console`): pub/sub that fans call events to connected WebSocket
+  clients. Both gateway sinks (WS and AudioSocket) broadcast to the hub. `/v1/console` WebSocket
+  endpoint. `/v1/console/ui` serves a self-contained operator web page with live transcript and a
+  handoff panel that screen-pops on escalation. Demo brain updated with billing escalation (press 3).
 - 2026-10-27 CI integration tests: added `integration` job to `.github/workflows/ci.yml` that runs
   both inbound and outbound integration tests (Docker + real Asterisk). Added `--add-host` to both
   test scripts for Linux host resolution. Updated production `deploy/asterisk/manager.conf` with
@@ -64,11 +76,13 @@ Phase 2 complete. Next: Phase 3 — warm transfer + console.
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk (the Goertzel test
-   confirms the frequencies; the question is whether the remote switch's DTMF detector picks them
-   up through the codec path).
-2. Phase 3: warm transfer + console (handoff packet, whisper leg, web screen-pop).
-3. Consider generating the Go and TS types from the schema (ADR-0005).
+1. Integration test: Docker test proving escalation fires, console receives the handoff, and the
+   channel redirects on the switch.
+2. Whisper leg: once TTS is available (Phase 4), play a synthesized summary to the human agent
+   before bridging. For now the text handoff via the console serves the same purpose.
+3. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
+4. Phase 4: real STT/LLM/TTS providers + eval CI.
+5. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.

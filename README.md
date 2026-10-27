@@ -8,12 +8,12 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 2 (test-driver) complete** — `ivrvg map` runs scenario scripts against a remote
-> IVR over AudioSocket + AMI, builds a flow map of the observed menu tree, and `ivrvg diff`
-> compares maps between releases. Outbound calls originate via AMI, in-band DTMF tones traverse
-> the IVR per the scenario, and replayable event logs are produced. Both inbound and outbound
-> paths have Docker-based integration tests against real Asterisk. STT-driven traversal waits for
-> Phase 4. See [`docs/ASTERISK.md`](docs/ASTERISK.md).
+> Status: **Phase 3 (warm transfer + console) in progress** — the `escalate` action and
+> structured handoff packet are delivered. A live operator console at `/v1/console/ui` streams
+> call events and screen-pops the handoff when the agent escalates. The channel redirects to
+> the human agent's extension via AMI. The audio whisper leg is deferred to Phase 4 (needs TTS);
+> the text-based handoff via the console serves the same purpose for now.
+> See [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
 
@@ -91,11 +91,16 @@ The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
   Phase 4.
 - **Proof:** map a sample IVR automatically and catch a seeded regression.
 
-### Phase 3 — Warm transfer + console
-- Handoff packet (identity, intent, entities, actions taken, sentiment, escalation code).
-- Whisper leg to the human; the caller never hears it.
-- Web screen-pop console with live transcript and browser take-over.
-- **Proof:** an AI host qualifies a caller, then merges a human leg with a whisper and a screen-pop.
+### Phase 3 — Warm transfer + console (in progress)
+- `escalate` action and structured `Handoff` packet (identity, intent, entities, actions taken,
+  sentiment, escalation code, summary). Additive v1 contract change.
+- Operator console: `/v1/console` WebSocket streams live call events; `/v1/console/ui` is a
+  self-contained web page with live transcript and a handoff panel that screen-pops on escalation.
+- AMI redirects the channel to the human agent's extension when the escalation names a destination.
+- Whisper leg (audio briefing to the human before bridging the caller) is deferred to Phase 4
+  — it needs TTS. The text-based handoff via the console serves the same purpose for now.
+- **Proof:** an AI host qualifies a caller, then escalates with a handoff packet; the console
+  screen-pops the packet and the live transcript, and the channel moves to the human's extension.
 
 ### Phase 4 — Real providers + eval CI
 - STT / LLM / TTS behind the existing interfaces; recorded fixtures for tests.
@@ -175,6 +180,7 @@ internal/control/   control actions, the Controller seam, AMI client
 internal/replay/    deterministic replay
 internal/scenario/  outbound test scenarios
 internal/flowmap/   IVR flow map: build from event logs, diff between releases
+internal/console/   operator console: hub, client, WebSocket handler
 schema/             the v1 contract (JSON Schema)
 deploy/asterisk/    dialplan and manager config that work as shipped
 docs/               CONTRACT.md · ARCHITECTURE · adr/ · CONTEXT.md
