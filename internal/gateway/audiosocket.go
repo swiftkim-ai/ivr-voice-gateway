@@ -18,6 +18,7 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/media"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/stt"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/wire"
 )
 
@@ -63,6 +64,10 @@ type AudioSocketOptions struct {
 	Redactor *call.Redactor
 	// Console receives live call events for the operator screen-pop.
 	Console *console.Hub
+	// STT is the speech-to-text transcriber. When set, caller audio frames
+	// pass through a VAD; complete utterances are transcribed and fed to the
+	// brain. When nil, caller audio is accepted and dropped (Phase 0–3).
+	STT stt.Transcriber
 
 	// FramePace is the gap between outbound audio frames, and so the rate the
 	// stream runs at. It defaults to the frame duration, which is real time;
@@ -161,11 +166,16 @@ func serveAudioSocketCall(ctx context.Context, conn net.Conn, opts AudioSocketOp
 	if err := c.Respond(ctx); err != nil { // greeting
 		return err
 	}
-	return pumpAudioSocket(ctx, br, c)
+	return pumpAudioSocket(ctx, br, c, opts.STT)
 }
 
 // pumpAudioSocket turns inbound frames into engine input until the call ends.
-func pumpAudioSocket(ctx context.Context, br *bufio.Reader, c *call.Call) error {
+func pumpAudioSocket(ctx context.Context, br *bufio.Reader, c *call.Call, transcriber stt.Transcriber) error {
+	var vad *media.VAD
+	if transcriber != nil {
+		vad = &media.VAD{}
+	}
+
 	for {
 		kind, payload, err := readFrame(br)
 		if err != nil {
@@ -178,8 +188,22 @@ func pumpAudioSocket(ctx context.Context, br *bufio.Reader, c *call.Call) error 
 
 		switch kind {
 		case asAudio8k:
-			// Caller audio. Phase 1 has no STT, so it is accepted and dropped;
-			// Phase 4 runs it through the transcriber.
+			if vad == nil {
+				break
+			}
+			if vad.Feed(payload) {
+				pcm := vad.Utterance()
+				result, err := transcriber.Transcribe(ctx, pcm)
+				if err != nil {
+					log.Printf("gateway: stt: %v", err)
+					break
+				}
+				if result.Text != "" {
+					if err := c.Input(ctx, result.Text); err != nil {
+						return err
+					}
+				}
+			}
 
 		case asDTMF:
 			if len(payload) == 0 {

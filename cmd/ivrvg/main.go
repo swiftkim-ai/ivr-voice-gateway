@@ -148,6 +148,7 @@ func cmdServe(args []string) error {
 	}
 
 	spk := buildSpeaker(*ttsFlag, *ttsModel)
+	transcriber := buildSTT()
 
 	hub := console.NewHub()
 
@@ -172,7 +173,7 @@ func cmdServe(args []string) error {
 		opts := gateway.AudioSocketOptions{
 			LogDir: *logdir, Brain: b, Speaker: spk,
 			Control: ctl, Channels: channels, Redactor: redactor,
-			Console: hub,
+			Console: hub, STT: transcriber,
 		}
 		go func() { errs <- gateway.ListenAndServeAudioSocket(*asAddr, opts) }()
 		log.Printf("ivrvg: audiosocket on %s (PCM16 8k, 20 ms frames)", *asAddr)

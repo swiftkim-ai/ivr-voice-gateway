@@ -35,13 +35,20 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | LLM brain | ✅ done | `llm.Brain` behind existing `brain.Brain` interface |
 | Recorded fixtures + recording | ✅ done | `llm.Recording` captures; `llm.Recorded` replays |
 | Eval command + scenario bank | ✅ done | `ivrvg eval`, 3 sample scenarios, runs in CI |
-| STT-driven traversal | ⬜ not started | needs real STT; scenarios use timed waits for now |
+| VAD + STT in AudioSocket | ✅ done | energy VAD → Deepgram → brain; nil STT = silent drop |
+| STT-driven outbound traversal | ⬜ not started | outbound still uses timed waits |
 | Claude LLM provider | ✅ done | `llm.Claude` via net/http, no new deps |
 | OpenAI-compat LLM provider | ✅ done | `llm.OpenAI` — OpenAI, Groq, Ollama, any compat server |
 | Deepgram STT provider | ✅ done | `stt.Deepgram` pre-recorded API, nova-2 default |
 | ElevenLabs TTS provider | ✅ done | `tts.ElevenLabs` PCM16 16 kHz, resampled by Speaker |
 
 ## Done (most recent first)
+- 2026-10-27 VAD + STT wired into the AudioSocket adapter. Energy-based voice activity
+  detector (`internal/media/vad.go`): accumulates speech frames, triggers on 300 ms silence.
+  When `AudioSocketOptions.STT` is set, caller audio flows through VAD → Deepgram → `c.Input()`.
+  When nil, audio is accepted and dropped (backward compatible). `buildSTT()` in cmdServe
+  activates when `IVRVG_DEEPGRAM_KEY` is set. The full inbound pipeline is now: caller speaks →
+  AudioSocket PCM → VAD → Deepgram STT → LLM brain → ElevenLabs TTS → PCM out.
 - 2026-10-27 All concrete providers shipped, zero new dependencies (all net/http):
   **LLM:** `llm.Claude` (Anthropic Messages API), `llm.OpenAI` (OpenAI chat completions —
   also works with Groq, Ollama, Together, any compatible endpoint). `-brain` flag: demo, claude,
@@ -105,12 +112,11 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Wire STT into the call engine (VAD → Deepgram → brain input loop).
+1. Live end-to-end test: real call with Claude brain + Deepgram STT + ElevenLabs TTS.
 2. Whisper leg: play a synthesized summary to the human agent before bridging.
 3. STT-driven outbound traversal: recognise prompts rather than following timed waits.
-4. Live end-to-end test: real call with Claude brain + Deepgram STT + ElevenLabs TTS.
-5. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
-6. Consider generating the Go and TS types from the schema (ADR-0005).
+4. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
+5. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.
