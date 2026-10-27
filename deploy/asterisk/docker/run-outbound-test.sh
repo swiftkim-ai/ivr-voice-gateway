@@ -130,8 +130,8 @@ check "sales node present" "$(grep -q '"sales"' "$mapfile" && echo true || echo 
 check "support node present" "$(grep -q '"support"' "$mapfile" && echo true || echo false)"
 
 # Expect edges from greeting via digits 1 and 2.
-check "edge greeting->sales:1" "$(grep -q '"from":"greeting"' "$mapfile" && grep -q '"input":"1"' "$mapfile" && echo true || echo false)"
-check "edge greeting->support:2" "$(grep -q '"from":"greeting"' "$mapfile" && grep -q '"input":"2"' "$mapfile" && echo true || echo false)"
+check "edge greeting->sales:1" "$(grep -q '"from":.*"greeting"' "$mapfile" && grep -q '"input":.*"1"' "$mapfile" && echo true || echo false)"
+check "edge greeting->support:2" "$(grep -q '"from":.*"greeting"' "$mapfile" && grep -q '"input":.*"2"' "$mapfile" && echo true || echo false)"
 
 echo "==> verifying ivrvg diff"
 # Identical maps should produce no diff (exit 0).
