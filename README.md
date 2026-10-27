@@ -8,10 +8,9 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 4 (real providers + eval CI) in progress** — provider interfaces (STT/LLM/TTS),
-> the LLM brain, recorded fixtures, and the eval command are delivered. The first concrete
-> provider is live: `-brain claude` wires the Anthropic Messages API behind `llm.Completer` using
-> only `net/http` (no new dependencies). STT and TTS providers are next.
+> Status: **Phase 4 (real providers + eval CI) in progress** — five LLM backends (Claude,
+> OpenAI, Groq, Ollama, any OpenAI-compatible server), Deepgram STT, and ElevenLabs TTS are
+> wired in — all via `net/http`, zero new dependencies. The eval scenario bank runs in CI.
 > See [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
@@ -160,8 +159,14 @@ see [`docs/ASTERISK.md`](docs/ASTERISK.md).
 # Build and run the gateway with the scripted brain (WebSocket media on :8099)
 go run ./cmd/ivrvg serve
 
-# Run with the Claude LLM brain (needs an Anthropic API key)
-IVRVG_ANTHROPIC_KEY=sk-... go run ./cmd/ivrvg serve -brain claude
+# Run with the Claude LLM brain + ElevenLabs TTS
+IVRVG_ANTHROPIC_KEY=sk-... IVRVG_ELEVENLABS_KEY=... IVRVG_ELEVENLABS_VOICE=... \
+  go run ./cmd/ivrvg serve -brain claude -tts elevenlabs
+
+# Or use OpenAI / Groq / Ollama:
+IVRVG_OPENAI_KEY=sk-... go run ./cmd/ivrvg serve -brain openai
+IVRVG_GROQ_KEY=gsk_...  go run ./cmd/ivrvg serve -brain groq
+go run ./cmd/ivrvg serve -brain ollama                           # local, no key needed
 
 # Attach to Asterisk: media on 8090, control over the manager interface
 IVRVG_AMI_SECRET=... go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 127.0.0.1:5038

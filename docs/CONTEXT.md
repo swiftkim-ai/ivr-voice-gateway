@@ -2,8 +2,8 @@
 _Last updated: 2026-10-27_
 
 ## Current goal
-Phase 4 — real providers + eval CI. Provider interfaces, LLM brain, fixtures, and the eval command
-are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when credentials are available.
+Phase 4 — real providers + eval CI. Five LLM backends (Claude, OpenAI, Groq, Ollama, any
+OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, zero new deps.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -37,15 +37,20 @@ are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when creden
 | Eval command + scenario bank | ✅ done | `ivrvg eval`, 3 sample scenarios, runs in CI |
 | STT-driven traversal | ⬜ not started | needs real STT; scenarios use timed waits for now |
 | Claude LLM provider | ✅ done | `llm.Claude` via net/http, no new deps |
-| Concrete STT provider | ⬜ not started | interface ready |
-| Concrete TTS provider | ⬜ not started | interface ready |
+| OpenAI-compat LLM provider | ✅ done | `llm.OpenAI` — OpenAI, Groq, Ollama, any compat server |
+| Deepgram STT provider | ✅ done | `stt.Deepgram` pre-recorded API, nova-2 default |
+| ElevenLabs TTS provider | ✅ done | `tts.ElevenLabs` PCM16 16 kHz, resampled by Speaker |
 
 ## Done (most recent first)
-- 2026-10-27 Claude LLM provider (`internal/llm/claude.go`): concrete `Completer` backed by the
-  Anthropic Messages API using `net/http` (zero new dependencies). Reads `IVRVG_ANTHROPIC_KEY`
-  from the environment. `llm.DefaultTools()` maps all eight control actions to JSON Schema tool
-  definitions. `-brain claude` flag on `ivrvg serve` wires the provider with a system prompt and
-  the full tool set. Tests against an httptest server. Version bumped to 0.4.1.
+- 2026-10-27 All concrete providers shipped, zero new dependencies (all net/http):
+  **LLM:** `llm.Claude` (Anthropic Messages API), `llm.OpenAI` (OpenAI chat completions —
+  also works with Groq, Ollama, Together, any compatible endpoint). `-brain` flag: demo, claude,
+  openai, groq, ollama. `llm.DefaultTools()` maps all eight control actions to JSON Schema.
+  **STT:** `stt.Deepgram` (pre-recorded API, nova-2 default, linear16 8 kHz).
+  **TTS:** `tts.ElevenLabs` (turbo v2.5 default, PCM16 16 kHz output, resampled by Speaker).
+  `-tts elevenlabs` flag. All env vars in `.env.example`. Version 0.5.0.
+- 2026-10-27 Claude LLM provider (`internal/llm/claude.go`): initial Anthropic Messages API
+  implementation.
 - 2026-10-27 Phase 4 core: provider interfaces (`stt.Transcriber`, `llm.Completer`,
   `tts.Synthesizer`), LLM brain (`llm.Brain`) behind the existing `brain.Brain` interface,
   recorded fixture infrastructure (`llm.Recording` captures, `llm.Recorded` replays), TTS
@@ -100,10 +105,10 @@ are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when creden
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Concrete STT provider (Whisper or Deepgram) behind `stt.Transcriber`.
-2. Concrete TTS provider (ElevenLabs or Google) behind `tts.Synthesizer`.
-3. Whisper leg: play a synthesized summary to the human agent before bridging.
-4. STT-driven outbound traversal: recognise prompts rather than following timed waits.
+1. Wire STT into the call engine (VAD → Deepgram → brain input loop).
+2. Whisper leg: play a synthesized summary to the human agent before bridging.
+3. STT-driven outbound traversal: recognise prompts rather than following timed waits.
+4. Live end-to-end test: real call with Claude brain + Deepgram STT + ElevenLabs TTS.
 5. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
 6. Consider generating the Go and TS types from the schema (ADR-0005).
 

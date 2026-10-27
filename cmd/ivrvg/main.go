@@ -38,9 +38,11 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/llm"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/replay"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/stt"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/tts"
 )
 
-const version = "0.4.1"
+const version = "0.5.0"
 
 // Secrets come from the environment, never from flags, which are visible to
 // anyone who can list processes.
@@ -48,6 +50,10 @@ const (
 	saltEnv         = "IVRVG_REDACTION_SALT"
 	amiSecretEnv    = "IVRVG_AMI_SECRET"
 	anthropicKeyEnv = "IVRVG_ANTHROPIC_KEY"
+	openaiKeyEnv    = "IVRVG_OPENAI_KEY"
+	deepgramKeyEnv  = "IVRVG_DEEPGRAM_KEY"
+	elevenlabsEnv   = "IVRVG_ELEVENLABS_KEY"
+	voiceIDEnv      = "IVRVG_ELEVENLABS_VOICE"
 )
 
 func main() {
@@ -88,7 +94,9 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `ivrvg — IVR Voice Gateway
 
-  serve   [-addr :8099] [-logdir data/calls] [-brain demo|claude] [-model id]
+  serve   [-addr :8099] [-logdir data/calls]
+          [-brain demo|claude|openai|groq|ollama] [-model id] [-llm-endpoint url]
+          [-tts elevenlabs] [-tts-model id]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
           Console: http://<addr>/v1/console/ui
   dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] [-callerid ...] <number>
@@ -101,11 +109,16 @@ func usage() {
   version
 
 Environment:
-  IVRVG_AMI_SECRET       Asterisk manager password; required with -ami.
-  IVRVG_ANTHROPIC_KEY    Anthropic API key; required with -brain claude.
-  IVRVG_REDACTION_SALT   Key for sensitive digit tokens. A random one is
-                         generated per run when unset, so tokens stop
-                         correlating across restarts.
+  IVRVG_AMI_SECRET         Asterisk manager password; required with -ami.
+  IVRVG_ANTHROPIC_KEY      Anthropic API key; required with -brain claude.
+  IVRVG_OPENAI_KEY         OpenAI API key; required with -brain openai.
+  IVRVG_GROQ_KEY           Groq API key; required with -brain groq.
+  IVRVG_DEEPGRAM_KEY       Deepgram API key; enables STT (when VAD is wired).
+  IVRVG_ELEVENLABS_KEY     ElevenLabs API key; required with -tts elevenlabs.
+  IVRVG_ELEVENLABS_VOICE   ElevenLabs voice ID; required with -tts elevenlabs.
+  IVRVG_REDACTION_SALT     Key for sensitive digit tokens. A random one is
+                           generated per run when unset, so tokens stop
+                           correlating across restarts.
 `)
 }
 
@@ -117,8 +130,11 @@ func cmdServe(args []string) error {
 	amiAddr := fs.String("ami", "", "Asterisk manager address host:port (empty: off)")
 	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
 	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
-	brainFlag := fs.String("brain", "demo", "brain backend: demo (scripted) or claude (Anthropic LLM)")
-	modelFlag := fs.String("model", "", "LLM model id (claude brain only; defaults to claude-sonnet-4-20250514)")
+	brainFlag := fs.String("brain", "demo", "brain: demo, claude, openai, groq, ollama")
+	modelFlag := fs.String("model", "", "LLM model id (overrides provider default)")
+	llmEndpoint := fs.String("llm-endpoint", "", "LLM API endpoint (overrides provider default)")
+	ttsFlag := fs.String("tts", "", "TTS provider: elevenlabs (empty: silence)")
+	ttsModel := fs.String("tts-model", "", "TTS model id (overrides provider default)")
 	_ = fs.Parse(args)
 
 	redactor, generated := redactionKey()
@@ -126,10 +142,12 @@ func cmdServe(args []string) error {
 		log.Printf("ivrvg: %s is unset; using a random key for this run, so digit tokens will not correlate across restarts", saltEnv)
 	}
 
-	b, err := buildBrain(*brainFlag, *modelFlag)
+	b, err := buildBrain(*brainFlag, *modelFlag, *llmEndpoint)
 	if err != nil {
 		return err
 	}
+
+	spk := buildSpeaker(*ttsFlag, *ttsModel)
 
 	hub := console.NewHub()
 
@@ -152,7 +170,7 @@ func cmdServe(args []string) error {
 
 	if *asAddr != "" {
 		opts := gateway.AudioSocketOptions{
-			LogDir: *logdir, Brain: b, Speaker: brain.Silence{},
+			LogDir: *logdir, Brain: b, Speaker: spk,
 			Control: ctl, Channels: channels, Redactor: redactor,
 			Console: hub,
 		}
@@ -161,11 +179,15 @@ func cmdServe(args []string) error {
 	}
 
 	h := gateway.Handler(gateway.Options{
-		LogDir: *logdir, Brain: b, Speaker: brain.Silence{},
+		LogDir: *logdir, Brain: b, Speaker: spk,
 		Redactor: redactor, Console: hub,
 	})
 	go func() { errs <- http.ListenAndServe(*addr, h) }()
-	log.Printf("ivrvg %s listening on %s (ws /v1/media, console /v1/console/ui, brain=%s, logs -> %s)", version, *addr, *brainFlag, *logdir)
+	ttsLabel := *ttsFlag
+	if ttsLabel == "" {
+		ttsLabel = "silence"
+	}
+	log.Printf("ivrvg %s listening on %s (brain=%s tts=%s logs=%s)", version, *addr, *brainFlag, ttsLabel, *logdir)
 
 	return <-errs
 }
@@ -178,29 +200,119 @@ Rules:
 - Never invent information. If you don't know, say so and offer to transfer.
 - Collect digits (account numbers, PINs) with the read_digits tool, never by asking the caller to speak them.`
 
-func buildBrain(kind, model string) (brain.Brain, error) {
+func buildBrain(kind, model, endpoint string) (brain.Brain, error) {
 	switch kind {
 	case "demo":
 		return demoBrain(), nil
+
 	case "claude":
 		key := os.Getenv(anthropicKeyEnv)
 		if key == "" {
 			return nil, fmt.Errorf("serve: -brain claude requires %s", anthropicKeyEnv)
 		}
 		comp := llm.NewClaude(llm.ClaudeConfig{
-			APIKey: key,
-			Model:  model,
+			APIKey:   key,
+			Model:    model,
+			Endpoint: endpoint,
 		})
-		b := llm.NewBrain(llm.BrainConfig{
-			SystemPrompt: defaultSystemPrompt,
-			Completer:    comp,
-			Tools:        llm.DefaultTools(),
+		return llmBrain(comp.ModelID(), comp), nil
+
+	case "openai":
+		key := os.Getenv(openaiKeyEnv)
+		if key == "" {
+			return nil, fmt.Errorf("serve: -brain openai requires %s", openaiKeyEnv)
+		}
+		m := model
+		if m == "" {
+			m = "gpt-4o"
+		}
+		comp := llm.NewOpenAI(llm.OpenAIConfig{
+			APIKey:   key,
+			Model:    m,
+			Endpoint: endpoint,
 		})
-		log.Printf("ivrvg: brain=claude model=%s", comp.ModelID())
-		return b, nil
+		return llmBrain(comp.ModelID(), comp), nil
+
+	case "groq":
+		key := os.Getenv("IVRVG_GROQ_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("serve: -brain groq requires IVRVG_GROQ_KEY")
+		}
+		m := model
+		if m == "" {
+			m = "llama-3.3-70b-versatile"
+		}
+		ep := endpoint
+		if ep == "" {
+			ep = "https://api.groq.com/openai/v1/chat/completions"
+		}
+		comp := llm.NewOpenAI(llm.OpenAIConfig{
+			APIKey:   key,
+			Model:    m,
+			Endpoint: ep,
+		})
+		return llmBrain(comp.ModelID(), comp), nil
+
+	case "ollama":
+		m := model
+		if m == "" {
+			m = "llama3"
+		}
+		ep := endpoint
+		if ep == "" {
+			ep = "http://127.0.0.1:11434/v1/chat/completions"
+		}
+		comp := llm.NewOpenAI(llm.OpenAIConfig{
+			Model:    m,
+			Endpoint: ep,
+		})
+		return llmBrain(comp.ModelID(), comp), nil
+
 	default:
-		return nil, fmt.Errorf("serve: unknown brain %q (want demo or claude)", kind)
+		return nil, fmt.Errorf("serve: unknown brain %q (want demo, claude, openai, groq, or ollama)", kind)
 	}
+}
+
+func llmBrain(modelID string, comp llm.Completer) brain.Brain {
+	b := llm.NewBrain(llm.BrainConfig{
+		SystemPrompt: defaultSystemPrompt,
+		Completer:    comp,
+		Tools:        llm.DefaultTools(),
+	})
+	log.Printf("ivrvg: brain=llm model=%s", modelID)
+	return b
+}
+
+func buildSpeaker(kind, model string) brain.Speaker {
+	switch kind {
+	case "elevenlabs":
+		key := os.Getenv(elevenlabsEnv)
+		voiceID := os.Getenv(voiceIDEnv)
+		if key == "" || voiceID == "" {
+			log.Fatalf("serve: -tts elevenlabs requires %s and %s", elevenlabsEnv, voiceIDEnv)
+		}
+		synth := tts.NewElevenLabs(tts.ElevenLabsConfig{
+			APIKey:  key,
+			VoiceID: voiceID,
+			ModelID: model,
+		})
+		log.Printf("ivrvg: tts=elevenlabs voice=%s", voiceID)
+		return tts.Speaker{Synth: synth}
+	default:
+		return brain.Silence{}
+	}
+}
+
+// buildSTT is wired when the engine gains a VAD+STT loop. For now it
+// validates that the credentials are present and logs readiness.
+func buildSTT() stt.Transcriber {
+	key := os.Getenv(deepgramKeyEnv)
+	if key == "" {
+		return nil
+	}
+	t := stt.NewDeepgram(stt.DeepgramConfig{APIKey: key})
+	log.Printf("ivrvg: stt=deepgram ready (will activate with VAD)")
+	return t
 }
 
 func dialManager(addr, user, dialplanContext string) (*control.AMI, error) {
