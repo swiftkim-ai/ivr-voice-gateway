@@ -69,3 +69,16 @@ jobs:
       # edited into it and committed, catch it here.
       - name: config template carries no real secret
         run: grep -q '^secret = change-me$' deploy/asterisk/manager.conf
+
+  integration:
+    runs-on: ubuntu-24.04
+    needs: [go]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: inbound integration test
+        run: ./deploy/asterisk/docker/run-integration-test.sh
+      - name: outbound integration test
+        run: ./deploy/asterisk/docker/run-outbound-test.sh

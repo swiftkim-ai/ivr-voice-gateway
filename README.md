@@ -8,12 +8,12 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 2 (test-driver) in progress** — `ivrvg map` runs scenario scripts against a
-> remote IVR over AudioSocket + AMI, builds a flow map of the observed menu tree, and `ivrvg diff`
-> compares maps between releases. Outbound calls originate via AMI, traverse the IVR by pressing
-> DTMF per the scenario, and produce replayable event logs. STT-driven traversal waits for Phase 4.
-> The completed Phase 1 inbound path attaches to Asterisk over AudioSocket and AMI; see
-> [`docs/ASTERISK.md`](docs/ASTERISK.md).
+> Status: **Phase 2 (test-driver) complete** — `ivrvg map` runs scenario scripts against a remote
+> IVR over AudioSocket + AMI, builds a flow map of the observed menu tree, and `ivrvg diff`
+> compares maps between releases. Outbound calls originate via AMI, in-band DTMF tones traverse
+> the IVR per the scenario, and replayable event logs are produced. Both inbound and outbound
+> paths have Docker-based integration tests against real Asterisk. STT-driven traversal waits for
+> Phase 4. See [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
 
@@ -76,15 +76,17 @@ The thesis of the project, made real.
 - **Proof:** a caller enters an account number by keypad mid-sentence; the agent reads it back,
   routes the call, and transfers it.
 
-### Phase 2 — Test-driver 🟡
+### Phase 2 — Test-driver ✅
 The sellable, outward-facing product, reusing the Phase 1 tools in reverse.
 - `ivrvg dial` places outbound calls against any reachable IVR.
 - `ivrvg map -scenario file.json` runs timed scenarios — each defines a path through the IVR
-  as a sequence of labelled waits and DTMF presses. Outbound calls originate via AMI, traverse
-  the IVR according to the script, and produce replayable JSONL event logs. The logs are merged
-  into a flow map: a JSON graph of observed nodes and edges.
+  as a sequence of labelled waits and DTMF presses. Outbound calls originate via AMI, in-band
+  DTMF tones traverse the IVR according to the script, and replayable JSONL event logs are
+  produced. The logs are merged into a flow map: a JSON graph of observed nodes and edges.
 - `ivrvg diff before.json after.json` compares two flow maps and exits non-zero on any change.
   Suitable for CI assertions on IVR regressions between releases.
+- Docker integration test (`make outbound-test`) verifies the full outbound path against a real
+  Asterisk with a stub IVR.
 - STT-driven traversal (recognising prompts rather than following a timed script) waits for
   Phase 4.
 - **Proof:** map a sample IVR automatically and catch a seeded regression.

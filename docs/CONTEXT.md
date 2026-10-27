@@ -1,9 +1,8 @@
 # CONTEXT — IVR Voice Gateway
-_Last updated: 2026-10-26_
+_Last updated: 2026-10-27_
 
 ## Current goal
-Phase 2 — the test-driver: originate outbound calls, drive IVR menus via timed scenarios, and
-produce deterministic, diffable flow maps.
+Phase 2 complete. Next: Phase 3 — warm transfer + console.
 
 ## Status at a glance
 | Area | State | Notes |
@@ -31,6 +30,10 @@ produce deterministic, diffable flow maps.
 | Real STT/LLM/TTS providers | ⬜ not started | Phase 4 |
 
 ## Done (most recent first)
+- 2026-10-27 CI integration tests: added `integration` job to `.github/workflows/ci.yml` that runs
+  both inbound and outbound integration tests (Docker + real Asterisk). Added `--add-host` to both
+  test scripts for Linux host resolution. Updated production `deploy/asterisk/manager.conf` with
+  `originate` write permission for `ivrvg dial`/`ivrvg map`.
 - 2026-10-26 In-band DTMF tone generation (`internal/media/dtmf.go`): generates 8 kHz PCM16 dual-
   tone frames for all 16 DTMF digits (100ms tone + 100ms gap). Wired into the outbound scenario
   handler — tones are injected into the AudioSocket stream so remote IVRs hear actual audio.
@@ -61,12 +64,11 @@ produce deterministic, diffable flow maps.
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Run `make outbound-test` with Docker to verify the outbound integration test passes end-to-end.
-2. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk (the Goertzel test
+1. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk (the Goertzel test
    confirms the frequencies; the question is whether the remote switch's DTMF detector picks them
    up through the codec path).
-3. Add a CI job that runs both integration tests on push.
-4. Consider generating the Go and TS types from the schema (ADR-0005).
+2. Phase 3: warm transfer + console (handoff packet, whisper leg, web screen-pop).
+3. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.

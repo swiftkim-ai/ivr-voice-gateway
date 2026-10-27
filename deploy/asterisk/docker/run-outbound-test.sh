@@ -45,6 +45,7 @@ docker build -q -t "$image" "$here" >/dev/null
 echo "==> starting Asterisk"
 docker rm -f "$container" >/dev/null 2>&1 || true
 docker run -d --name "$container" \
+	--add-host=host.docker.internal:host-gateway \
 	-p "127.0.0.1:$ami_port:5038" \
 	-v "$here/extensions.conf:/etc/asterisk/extensions.conf:ro" \
 	-v "$here/manager.conf:/etc/asterisk/manager.conf:ro" \
