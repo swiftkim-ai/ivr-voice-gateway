@@ -1,0 +1,30 @@
+[
+  {
+    "name": "greeting-and-transfer",
+    "fixture": "greeting-transfer.json",
+    "inputs": ["I need to speak with sales"],
+    "expect": {
+      "actions": ["transfer"],
+      "text_contains": ["transfer"]
+    }
+  },
+  {
+    "name": "billing-escalation",
+    "fixture": "billing-escalation.json",
+    "inputs": ["I have a billing dispute on my last invoice"],
+    "expect": {
+      "actions": ["escalate"],
+      "text_contains": ["billing"]
+    }
+  },
+  {
+    "name": "polite-hangup",
+    "fixture": "hangup-polite.json",
+    "inputs": ["Never mind, goodbye"],
+    "expect": {
+      "actions": ["hangup"],
+      "text_contains": ["thank you"],
+      "text_absent": ["sorry", "error"]
+    }
+  }
+]

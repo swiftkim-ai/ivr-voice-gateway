@@ -1,11 +1,12 @@
 // Command ivrvg is the IVR Voice Gateway: it serves calls over the v1 contract,
-// replays recorded calls deterministically, maps remote IVRs, and diffs the
-// maps to catch regressions.
+// replays recorded calls deterministically, maps remote IVRs, diffs the maps
+// to catch regressions, and evaluates prompt/model changes against a scenario bank.
 //
 //	ivrvg serve   [-addr :8099] [-logdir data/calls] [-audiosocket :8090] [-ami host:5038]
 //	ivrvg dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] <number>
 //	ivrvg map     -ami host:5038 -channel 'PJSIP/{number}@trunk' -scenario scenarios.json [-audiosocket :8090] [-out map.json] [-logdir data/outbound]
 //	ivrvg diff    <before.json> <after.json>
+//	ivrvg eval    -bank scenarios/bank.json [-fixtures testdata/fixtures]
 //	ivrvg replay  <call.jsonl>
 //	ivrvg sample  [-out testdata/calls/example.jsonl]
 //	ivrvg version
@@ -30,6 +31,7 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/call"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/console"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/control"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/eval"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/flowmap"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/gateway"
@@ -37,7 +39,7 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 // Secrets come from the environment, never from flags, which are visible to
 // anyone who can list processes.
@@ -61,6 +63,8 @@ func main() {
 		err = cmdMap(os.Args[2:])
 	case "diff":
 		err = cmdDiff(os.Args[2:])
+	case "eval":
+		err = cmdEval(os.Args[2:])
 	case "replay":
 		err = cmdReplay(os.Args[2:])
 	case "sample":
@@ -89,6 +93,7 @@ func usage() {
   map     -ami host:5038 -channel 'PJSIP/{number}@trunk' -scenario file.json
           [-audiosocket :8090] [-out map.json] [-logdir data/outbound]
   diff    <before.json> <after.json>
+  eval    -bank scenarios/bank.json [-fixtures testdata/fixtures]
   replay  <call.jsonl>
   sample  [-out testdata/calls/example.jsonl]
   version
@@ -472,6 +477,42 @@ func cmdDiff(args []string) error {
 	fmt.Println(string(data))
 	fmt.Printf("\n%d change(s)\n", len(changes))
 	os.Exit(1)
+	return nil
+}
+
+func cmdEval(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ExitOnError)
+	bankPath := fs.String("bank", "", "scenario bank file (JSON array of scenarios)")
+	fixtureDir := fs.String("fixtures", "testdata/fixtures", "directory containing LLM fixture files")
+	_ = fs.Parse(args)
+
+	if *bankPath == "" {
+		return fmt.Errorf("eval: -bank is required")
+	}
+
+	scenarios, err := eval.LoadBank(*bankPath)
+	if err != nil {
+		return err
+	}
+	log.Printf("ivrvg eval: loaded %d scenario(s) from %s", len(scenarios), *bankPath)
+
+	report := eval.Run(context.Background(), scenarios, *fixtureDir)
+
+	for _, r := range report.Results {
+		if r.Pass {
+			fmt.Printf("  pass  %s\n", r.Name)
+		} else {
+			fmt.Printf("  FAIL  %s\n", r.Name)
+			for _, f := range r.Failures {
+				fmt.Printf("        %s\n", f)
+			}
+		}
+	}
+	fmt.Printf("\n%d/%d passed\n", report.Passed, report.Total)
+
+	if !report.OK() {
+		os.Exit(1)
+	}
 	return nil
 }
 

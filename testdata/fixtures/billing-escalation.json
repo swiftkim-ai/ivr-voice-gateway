@@ -1,0 +1,41 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "messages": [
+          {"role": "system", "content": "You are a helpful IVR agent.\n\nCaller context: eval"},
+          {"role": "user", "content": "[Call connected. Greet the caller.]"}
+        ]
+      },
+      "response": {
+        "text": "Hello! Welcome to our service. Press 1 for sales, 2 for support, or 3 for billing."
+      }
+    },
+    {
+      "request": {
+        "messages": [
+          {"role": "system", "content": "You are a helpful IVR agent.\n\nCaller context: eval"},
+          {"role": "assistant", "content": "Hello! Welcome to our service. Press 1 for sales, 2 for support, or 3 for billing."},
+          {"role": "user", "content": "I have a billing dispute on my last invoice"}
+        ]
+      },
+      "response": {
+        "text": "I understand you have a billing concern. Let me connect you with a billing specialist who can help resolve this.",
+        "tool_calls": [
+          {
+            "name": "escalate",
+            "args": {
+              "dest": "300",
+              "identity": "caller",
+              "intent": "billing dispute",
+              "sentiment": "frustrated",
+              "escalation_code": "BILLING",
+              "summary": "Caller reports a billing dispute on their last invoice.",
+              "actions_taken": ["Greeted caller", "Identified billing concern"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

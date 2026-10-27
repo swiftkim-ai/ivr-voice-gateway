@@ -1,0 +1,30 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "messages": [
+          {"role": "system", "content": "You are a helpful IVR agent.\n\nCaller context: eval"},
+          {"role": "user", "content": "[Call connected. Greet the caller.]"}
+        ]
+      },
+      "response": {
+        "text": "Hello! Welcome to our service. How can I help you today?"
+      }
+    },
+    {
+      "request": {
+        "messages": [
+          {"role": "system", "content": "You are a helpful IVR agent.\n\nCaller context: eval"},
+          {"role": "assistant", "content": "Hello! Welcome to our service. How can I help you today?"},
+          {"role": "user", "content": "I need to speak with sales"}
+        ]
+      },
+      "response": {
+        "text": "Let me transfer you to our sales team right away.",
+        "tool_calls": [
+          {"name": "transfer", "args": {"dest": "200"}}
+        ]
+      }
+    }
+  ]
+}
