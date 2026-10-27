@@ -35,17 +35,19 @@ import (
 	"github.com/swiftkimani/ivr-voice-gateway/internal/eventlog"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/flowmap"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/gateway"
+	"github.com/swiftkimani/ivr-voice-gateway/internal/llm"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/replay"
 	"github.com/swiftkimani/ivr-voice-gateway/internal/scenario"
 )
 
-const version = "0.4.0"
+const version = "0.4.1"
 
 // Secrets come from the environment, never from flags, which are visible to
 // anyone who can list processes.
 const (
-	saltEnv      = "IVRVG_REDACTION_SALT"
-	amiSecretEnv = "IVRVG_AMI_SECRET"
+	saltEnv         = "IVRVG_REDACTION_SALT"
+	amiSecretEnv    = "IVRVG_AMI_SECRET"
+	anthropicKeyEnv = "IVRVG_ANTHROPIC_KEY"
 )
 
 func main() {
@@ -86,7 +88,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `ivrvg — IVR Voice Gateway
 
-  serve   [-addr :8099] [-logdir data/calls]
+  serve   [-addr :8099] [-logdir data/calls] [-brain demo|claude] [-model id]
           [-audiosocket :8090] [-ami host:5038] [-ami-user ivrvg] [-ami-context default]
           Console: http://<addr>/v1/console/ui
   dial    -ami host:5038 -channel 'PJSIP/{number}@trunk' [-ami-user ivrvg] [-out-context ivrvg-out] [-callerid ...] <number>
@@ -100,6 +102,7 @@ func usage() {
 
 Environment:
   IVRVG_AMI_SECRET       Asterisk manager password; required with -ami.
+  IVRVG_ANTHROPIC_KEY    Anthropic API key; required with -brain claude.
   IVRVG_REDACTION_SALT   Key for sensitive digit tokens. A random one is
                          generated per run when unset, so tokens stop
                          correlating across restarts.
@@ -114,11 +117,18 @@ func cmdServe(args []string) error {
 	amiAddr := fs.String("ami", "", "Asterisk manager address host:port (empty: off)")
 	amiUser := fs.String("ami-user", "ivrvg", "Asterisk manager username")
 	amiContext := fs.String("ami-context", "default", "dialplan context that route and transfer redirect into")
+	brainFlag := fs.String("brain", "demo", "brain backend: demo (scripted) or claude (Anthropic LLM)")
+	modelFlag := fs.String("model", "", "LLM model id (claude brain only; defaults to claude-sonnet-4-20250514)")
 	_ = fs.Parse(args)
 
 	redactor, generated := redactionKey()
 	if generated {
 		log.Printf("ivrvg: %s is unset; using a random key for this run, so digit tokens will not correlate across restarts", saltEnv)
+	}
+
+	b, err := buildBrain(*brainFlag, *modelFlag)
+	if err != nil {
+		return err
 	}
 
 	hub := console.NewHub()
@@ -142,7 +152,7 @@ func cmdServe(args []string) error {
 
 	if *asAddr != "" {
 		opts := gateway.AudioSocketOptions{
-			LogDir: *logdir, Brain: demoBrain(), Speaker: brain.Silence{},
+			LogDir: *logdir, Brain: b, Speaker: brain.Silence{},
 			Control: ctl, Channels: channels, Redactor: redactor,
 			Console: hub,
 		}
@@ -151,13 +161,46 @@ func cmdServe(args []string) error {
 	}
 
 	h := gateway.Handler(gateway.Options{
-		LogDir: *logdir, Brain: demoBrain(), Speaker: brain.Silence{},
+		LogDir: *logdir, Brain: b, Speaker: brain.Silence{},
 		Redactor: redactor, Console: hub,
 	})
 	go func() { errs <- http.ListenAndServe(*addr, h) }()
-	log.Printf("ivrvg %s listening on %s (ws /v1/media, console /v1/console/ui, logs -> %s)", version, *addr, *logdir)
+	log.Printf("ivrvg %s listening on %s (ws /v1/media, console /v1/console/ui, brain=%s, logs -> %s)", version, *addr, *brainFlag, *logdir)
 
 	return <-errs
+}
+
+const defaultSystemPrompt = `You are a helpful IVR voice agent. You answer phone calls, help callers with their requests, and take actions on the call when needed.
+
+Rules:
+- Be concise. Callers are on the phone — short sentences, no filler.
+- When the caller needs a human, use the escalate tool with a summary.
+- Never invent information. If you don't know, say so and offer to transfer.
+- Collect digits (account numbers, PINs) with the read_digits tool, never by asking the caller to speak them.`
+
+func buildBrain(kind, model string) (brain.Brain, error) {
+	switch kind {
+	case "demo":
+		return demoBrain(), nil
+	case "claude":
+		key := os.Getenv(anthropicKeyEnv)
+		if key == "" {
+			return nil, fmt.Errorf("serve: -brain claude requires %s", anthropicKeyEnv)
+		}
+		comp := llm.NewClaude(llm.ClaudeConfig{
+			APIKey: key,
+			Model:  model,
+		})
+		b := llm.NewBrain(llm.BrainConfig{
+			SystemPrompt: defaultSystemPrompt,
+			Completer:    comp,
+			Tools:        llm.DefaultTools(),
+		})
+		log.Printf("ivrvg: brain=claude model=%s", comp.ModelID())
+		return b, nil
+	default:
+		return nil, fmt.Errorf("serve: unknown brain %q (want demo or claude)", kind)
+	}
 }
 
 func dialManager(addr, user, dialplanContext string) (*control.AMI, error) {

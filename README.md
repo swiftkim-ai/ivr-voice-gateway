@@ -8,12 +8,10 @@ becomes a regression test.
 The point of this project is not voice quality. Voice quality is a solved commodity. The point is the
 **control plane** — acting on the call — and the **eval loop** — proving a change did not break a call.
 
-> Status: **Phase 3 (warm transfer + console) complete** — the `escalate` action, structured
-> handoff packet, operator console, and integration test are delivered. `make escalation-test`
-> proves the full path: caller presses 3 → agent escalates with a BILLING handoff → event log
-> and console WebSocket carry the packet → Asterisk redirects the channel to the human's
-> extension. The audio whisper leg is deferred to Phase 4 (needs TTS); the text-based handoff
-> via the console serves the same purpose for now.
+> Status: **Phase 4 (real providers + eval CI) in progress** — provider interfaces (STT/LLM/TTS),
+> the LLM brain, recorded fixtures, and the eval command are delivered. The first concrete
+> provider is live: `-brain claude` wires the Anthropic Messages API behind `llm.Completer` using
+> only `net/http` (no new dependencies). STT and TTS providers are next.
 > See [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ---
@@ -159,8 +157,11 @@ Prerequisites: Go 1.23+, Node 22+ (for the SDK). Asterisk is needed only for a r
 see [`docs/ASTERISK.md`](docs/ASTERISK.md).
 
 ```bash
-# Build and run the gateway (WebSocket media endpoint on :8099)
+# Build and run the gateway with the scripted brain (WebSocket media on :8099)
 go run ./cmd/ivrvg serve
+
+# Run with the Claude LLM brain (needs an Anthropic API key)
+IVRVG_ANTHROPIC_KEY=sk-... go run ./cmd/ivrvg serve -brain claude
 
 # Attach to Asterisk: media on 8090, control over the manager interface
 IVRVG_AMI_SECRET=... go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 127.0.0.1:5038

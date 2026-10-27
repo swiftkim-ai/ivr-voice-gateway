@@ -36,9 +36,16 @@ are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when creden
 | Recorded fixtures + recording | ✅ done | `llm.Recording` captures; `llm.Recorded` replays |
 | Eval command + scenario bank | ✅ done | `ivrvg eval`, 3 sample scenarios, runs in CI |
 | STT-driven traversal | ⬜ not started | needs real STT; scenarios use timed waits for now |
-| Concrete providers (Claude, Whisper, etc.) | ⬜ not started | interfaces ready, needs credentials |
+| Claude LLM provider | ✅ done | `llm.Claude` via net/http, no new deps |
+| Concrete STT provider | ⬜ not started | interface ready |
+| Concrete TTS provider | ⬜ not started | interface ready |
 
 ## Done (most recent first)
+- 2026-10-27 Claude LLM provider (`internal/llm/claude.go`): concrete `Completer` backed by the
+  Anthropic Messages API using `net/http` (zero new dependencies). Reads `IVRVG_ANTHROPIC_KEY`
+  from the environment. `llm.DefaultTools()` maps all eight control actions to JSON Schema tool
+  definitions. `-brain claude` flag on `ivrvg serve` wires the provider with a system prompt and
+  the full tool set. Tests against an httptest server. Version bumped to 0.4.1.
 - 2026-10-27 Phase 4 core: provider interfaces (`stt.Transcriber`, `llm.Completer`,
   `tts.Synthesizer`), LLM brain (`llm.Brain`) behind the existing `brain.Brain` interface,
   recorded fixture infrastructure (`llm.Recording` captures, `llm.Recorded` replays), TTS
@@ -94,12 +101,11 @@ are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when creden
 
 ## Next (ordered)
 1. Concrete STT provider (Whisper or Deepgram) behind `stt.Transcriber`.
-2. Concrete LLM provider (Claude via Anthropic SDK) behind `llm.Completer`.
-3. Concrete TTS provider (ElevenLabs or Google) behind `tts.Synthesizer`.
-4. Whisper leg: play a synthesized summary to the human agent before bridging.
-5. STT-driven outbound traversal: recognise prompts rather than following timed waits.
-6. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
-7. Consider generating the Go and TS types from the schema (ADR-0005).
+2. Concrete TTS provider (ElevenLabs or Google) behind `tts.Synthesizer`.
+3. Whisper leg: play a synthesized summary to the human agent before bridging.
+4. STT-driven outbound traversal: recognise prompts rather than following timed waits.
+5. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
+6. Consider generating the Go and TS types from the schema (ADR-0005).
 
 ## Decisions (link ADRs)
 - ADR-0001 Attach to the IVR; do not replace it.
@@ -135,7 +141,8 @@ are delivered. Concrete providers (Claude, Whisper, ElevenLabs) ship when creden
 
 ## How to run right now
 - Prereqs: Go 1.23+, Node 22+ (for the SDK). Asterisk 16+ only for a real call.
-- `go run ./cmd/ivrvg serve` — gateway on `:8099`.
+- `go run ./cmd/ivrvg serve` — gateway on `:8099` (scripted brain by default).
+- With Claude brain: `IVRVG_ANTHROPIC_KEY=sk-… go run ./cmd/ivrvg serve -brain claude`
 - With Asterisk: `IVRVG_AMI_SECRET=… go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 127.0.0.1:5038`
   then dial 7000 from a softphone. Full setup in `docs/ASTERISK.md`.
 - `IVRVG_REDACTION_SALT` keys sensitive digit tokens; a random one is generated per run when unset.
