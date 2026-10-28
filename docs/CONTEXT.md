@@ -31,6 +31,7 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | Console screen-pop on escalation | ✅ done | Handoff panel in the web UI |
 | Escalation integration test | ✅ done | `make escalation-test` — Docker, real Asterisk, console tap |
 | Phone-testable POC | ✅ done | `make poc` — Docker Asterisk + softphone + real providers |
+| SIP trunk support | ✅ done | IVRVG_TRUNK_* vars → registration-based trunk, works behind NAT |
 | Whisper leg (audio to human) | ⬜ deferred | Needs TTS provider; text handoff via console for now |
 | Provider interfaces (STT/LLM/TTS) | ✅ done | `internal/stt`, `internal/llm`, `internal/tts` |
 | LLM brain | ✅ done | `llm.Brain` behind existing `brain.Brain` interface |
@@ -44,6 +45,10 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | ElevenLabs TTS provider | ✅ done | `tts.ElevenLabs` PCM16 16 kHz, resampled by Speaker |
 
 ## Done (most recent first)
+- 2026-10-28 SIP trunk support: POC script auto-generates PJSIP trunk config from `IVRVG_TRUNK_*`
+  env vars. Asterisk registers with the provider (Telnyx, Twilio, VoIP.ms, etc.) and routes
+  inbound DID calls to the gateway via `[from-trunk]` context. Registration-based auth works
+  behind NAT without port forwarding. Outbound via `ivrvg dial -channel 'PJSIP/{number}@trunk'`.
 - 2026-10-28 Phone-testable POC (`make poc`): PJSIP configuration for softphone registration
   (`deploy/asterisk/docker/pjsip.conf`), narrow RTP port range for Docker (`rtp.conf`), and a
   launcher script (`deploy/poc/run-poc.sh`) that starts Docker Asterisk with SIP/AMI + the gateway
