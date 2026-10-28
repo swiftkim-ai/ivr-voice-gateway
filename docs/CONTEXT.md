@@ -38,6 +38,7 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | Recorded fixtures + recording | ✅ done | `llm.Recording` captures; `llm.Recorded` replays |
 | Eval command + scenario bank | ✅ done | `ivrvg eval`, 3 sample scenarios, runs in CI |
 | VAD + STT in AudioSocket | ✅ done | energy VAD → Deepgram → brain; nil STT = silent drop |
+| Barge-in | ✅ done | Flush audio queue on caller speech; VAD reset after response |
 | STT-driven outbound traversal | ⬜ not started | outbound still uses timed waits |
 | Claude LLM provider | ✅ done | `llm.Claude` via net/http, no new deps |
 | OpenAI-compat LLM provider | ✅ done | `llm.OpenAI` — OpenAI, Groq, Ollama, any compat server |
@@ -45,6 +46,10 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | ElevenLabs TTS provider | ✅ done | `tts.ElevenLabs` PCM16 16 kHz, resampled by Speaker |
 
 ## Done (most recent first)
+- 2026-10-28 Barge-in: `Flusher` interface on the Sink drains queued agent audio when the caller
+  speaks. `audioSocketSink.Flush()` empties the outbound channel. `c.Input()` flushes before
+  processing. VAD reset after each brain+TTS response prevents false triggers from audio that
+  piled up in the TCP buffer during the blocking LLM call.
 - 2026-10-28 SIP trunk support: POC script auto-generates PJSIP trunk config from `IVRVG_TRUNK_*`
   env vars. Asterisk registers with the provider (Telnyx, Twilio, VoIP.ms, etc.) and routes
   inbound DID calls to the gateway via `[from-trunk]` context. Registration-based auth works
@@ -159,7 +164,8 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 - `internal/media` mu-law still has no callers.
 - The AMI connection does not reconnect.
 - A digit group has no timeout.
-- Barge-in needs the engine to be interruptible.
+- Barge-in flushes the audio queue; a fully async brain pipeline (non-blocking
+  Input) is deferred until latency becomes the bottleneck.
 
 ## How to run right now
 - Prereqs: Go 1.23+, Node 22+ (for the SDK), Docker (for the POC).

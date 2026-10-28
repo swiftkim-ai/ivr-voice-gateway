@@ -22,6 +22,13 @@ type Sink interface {
 	Audio(pcm []byte) error
 }
 
+// Flusher is an optional Sink capability. When the caller barges in (speaks
+// while the agent is talking), the engine drains any queued audio so the
+// agent stops immediately. Sinks that buffer audio should implement this.
+type Flusher interface {
+	Flush()
+}
+
 // Call drives one conversation.
 type Call struct {
 	ID      string
@@ -51,8 +58,12 @@ func (c *Call) Start() error {
 }
 
 // Input feeds recognised caller speech (from STT) into the call and produces the
-// agent's response.
+// agent's response. If the agent is still speaking (audio queued), the queue is
+// flushed first — the caller's voice takes priority (barge-in).
 func (c *Call) Input(ctx context.Context, text string) error {
+	if f, ok := c.Sink.(Flusher); ok {
+		f.Flush()
+	}
 	c.append("transcript", map[string]any{"text": text, "final": true})
 	final := true
 	if err := c.emit(wire.Message{Type: "transcript", Text: text, Final: &final}); err != nil {

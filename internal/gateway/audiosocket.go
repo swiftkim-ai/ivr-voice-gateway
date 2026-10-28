@@ -202,6 +202,11 @@ func pumpAudioSocket(ctx context.Context, br *bufio.Reader, c *call.Call, transc
 					if err := c.Input(ctx, result.Text); err != nil {
 						return err
 					}
+					// The brain+TTS call blocked the pump loop, so frames
+					// that arrived during that time are sitting in the TCP
+					// buffer. Reset the VAD so stale audio doesn't trigger
+					// a false utterance.
+					vad.Reset()
 				}
 			}
 
@@ -309,6 +314,19 @@ func (s *audioSocketSink) Message(m wire.Message) error {
 	}
 	log.Printf("gateway: audiosocket action %s: %v", m.Kind, err)
 	return nil
+}
+
+// Flush drains any queued agent audio so the caller's voice takes priority.
+// This is the barge-in mechanism: when the caller speaks while the agent is
+// talking, the engine flushes the queue and the agent stops immediately.
+func (s *audioSocketSink) Flush() {
+	for {
+		select {
+		case <-s.out:
+		default:
+			return
+		}
+	}
 }
 
 // Audio queues one frame for the stream. The copy is deliberate: the speaker
