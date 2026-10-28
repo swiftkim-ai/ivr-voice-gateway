@@ -1,5 +1,5 @@
 # CONTEXT — IVR Voice Gateway
-_Last updated: 2026-10-27_
+_Last updated: 2026-10-28_
 
 ## Current goal
 Phase 4 — real providers + eval CI. Five LLM backends (Claude, OpenAI, Groq, Ollama, any
@@ -30,6 +30,7 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | Console hub + web UI | ✅ done | `internal/console`, `/v1/console`, `/v1/console/ui` |
 | Console screen-pop on escalation | ✅ done | Handoff panel in the web UI |
 | Escalation integration test | ✅ done | `make escalation-test` — Docker, real Asterisk, console tap |
+| Phone-testable POC | ✅ done | `make poc` — Docker Asterisk + softphone + real providers |
 | Whisper leg (audio to human) | ⬜ deferred | Needs TTS provider; text handoff via console for now |
 | Provider interfaces (STT/LLM/TTS) | ✅ done | `internal/stt`, `internal/llm`, `internal/tts` |
 | LLM brain | ✅ done | `llm.Brain` behind existing `brain.Brain` interface |
@@ -43,6 +44,11 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 | ElevenLabs TTS provider | ✅ done | `tts.ElevenLabs` PCM16 16 kHz, resampled by Speaker |
 
 ## Done (most recent first)
+- 2026-10-28 Phone-testable POC (`make poc`): PJSIP configuration for softphone registration
+  (`deploy/asterisk/docker/pjsip.conf`), narrow RTP port range for Docker (`rtp.conf`), and a
+  launcher script (`deploy/poc/run-poc.sh`) that starts Docker Asterisk with SIP/AMI + the gateway
+  with the best available providers (auto-detects Claude/OpenAI/Groq, Deepgram STT, ElevenLabs TTS).
+  Register a softphone to 127.0.0.1:5060 (user: softphone, pass: ivrvg1234) and dial 7000.
 - 2026-10-27 VAD + STT wired into the AudioSocket adapter. Energy-based voice activity
   detector (`internal/media/vad.go`): accumulates speech frames, triggers on 300 ms silence.
   When `AudioSocketOptions.STT` is set, caller audio flows through VAD → Deepgram → `c.Input()`.
@@ -112,7 +118,7 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
   the TypeScript SDK over `/v1/media`: greeting → DTMF `1` → `transfer` action → hangup.
 
 ## Next (ordered)
-1. Live end-to-end test: real call with Claude brain + Deepgram STT + ElevenLabs TTS.
+1. Test the POC end-to-end: real call from a softphone with Claude + Deepgram + ElevenLabs.
 2. Whisper leg: play a synthesized summary to the human agent before bridging.
 3. STT-driven outbound traversal: recognise prompts rather than following timed waits.
 4. Verify that in-band DTMF tones are decoded by a real IVR over a SIP trunk.
@@ -151,7 +157,9 @@ OpenAI-compatible endpoint), Deepgram STT, ElevenLabs TTS — all via net/http, 
 - Barge-in needs the engine to be interruptible.
 
 ## How to run right now
-- Prereqs: Go 1.23+, Node 22+ (for the SDK). Asterisk 16+ only for a real call.
+- Prereqs: Go 1.23+, Node 22+ (for the SDK), Docker (for the POC).
+- **Phone POC** (easiest): `cp .env.example .env`, fill in API keys, `source .env`, `make poc`.
+  Register a softphone to 127.0.0.1 (user: softphone, pass: ivrvg1234) and dial 7000.
 - `go run ./cmd/ivrvg serve` — gateway on `:8099` (scripted brain by default).
 - With Claude brain: `IVRVG_ANTHROPIC_KEY=sk-… go run ./cmd/ivrvg serve -brain claude`
 - With Asterisk: `IVRVG_AMI_SECRET=… go run ./cmd/ivrvg serve -audiosocket 127.0.0.1:8090 -ami 127.0.0.1:5038`

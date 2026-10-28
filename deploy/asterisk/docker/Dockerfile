@@ -11,7 +11,7 @@ RUN apt-get update -qq \
  && apt-get install -y --no-install-recommends asterisk \
  && rm -rf /var/lib/apt/lists/*
 
-# The manager interface. Audio runs the other way, out to the gateway.
-EXPOSE 5038
+# The manager interface and SIP. Audio runs the other way, out to the gateway.
+EXPOSE 5038 5060/udp
 
 CMD ["asterisk", "-f", "-vvv"]

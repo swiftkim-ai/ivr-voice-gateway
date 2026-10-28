@@ -1,5 +1,5 @@
 .PHONY: all build run run-asterisk replay sample test test-go test-ts typecheck \
-        check fmt fmt-check vet schema-check integration-test outbound-test escalation-test eval diff
+        check fmt fmt-check vet schema-check integration-test outbound-test escalation-test eval diff poc
 
 # What CI runs. Use this before pushing.
 check: fmt-check vet build test-go typecheck test-ts schema-check eval
@@ -75,3 +75,8 @@ diff:
 
 schema-check:
 	python3 -c "import json; json.load(open('schema/ivrvg.v1.schema.json'))"
+
+# Phone-testable POC: Docker Asterisk + gateway with real providers.
+# Set your API keys in .env and `source .env` first; see .env.example.
+poc:
+	./deploy/poc/run-poc.sh
